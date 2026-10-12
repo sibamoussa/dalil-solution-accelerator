@@ -1,0 +1,9 @@
+fastapi==0.115.8
+uvicorn[standard]==0.34.0
+requests==2.32.3
+azure-identity==1.19.0
+pydantic==2.13.5
+agent-framework-core==1.19.0
+agent-framework-openai==1.14.4
+tiktoken==0.8.0
+azure-cosmos==4.9.0

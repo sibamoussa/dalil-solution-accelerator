@@ -1,0 +1,6 @@
+{
+  "deleteRetentionPolicy": {
+    "enabled": true,
+    "days": 7
+  }
+}

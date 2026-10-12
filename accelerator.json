@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "website": "https://www.abudhabi.gov.ae/ar/policies-and-legislations",
+    "allowedHosts": ["www.abudhabi.gov.ae"],
+    "pathPrefixes": ["/ar/policies-and-legislations", "/-/media/sites/adgov/gazettes/2026/ar/"],
+    "maxDocuments": 200,
+    "maxPages": 20,
+    "manifest": "sources/gazettes-2026.json"
+  },
+  "branding": {
+    "title": "Dalil",
+    "organization": "Dalil Solution Accelerator",
+    "shortName": "Dalil",
+    "logo": "/assets/dalil-mark.svg",
+    "accentColor": "#0078d4"
+  },
+  "resources": {
+    "applicationName": "dalil",
+    "environmentName": "dev",
+    "location": "uaenorth",
+    "knowledgeSource": "dalil-gazettes-2026",
+    "knowledgeBase": "dalil-policies-2026",
+    "chatDeployment": "gpt-5-1",
+    "chatModel": "gpt-5.1",
+    "chatModelVersion": "2025-11-13",
+    "chatModelSku": "GlobalStandard",
+    "chatModelCapacity": 10,
+    "embeddingDeployment": "text-embedding-3-large",
+    "embeddingModel": "text-embedding-3-large",
+    "embeddingModelVersion": "1",
+    "embeddingModelSku": "Standard",
+    "embeddingModelCapacity": 100
+  },
+  "history": {
+    "enabled": true,
+    "retentionDays": 30,
+    "database": "dalil",
+    "container": "conversations"
+  }
+}

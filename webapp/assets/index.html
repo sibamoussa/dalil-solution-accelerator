@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__APP_TITLE__</title>
+  <link rel="icon" href="__LOGO_URL__">
+  <link rel="stylesheet" href="/assets/dalil.css">
+  <script src="/assets/dalil.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="__APP_TITLE__"><img src="__LOGO_URL__" width="32" height="32" alt=""><strong>__APP_TITLE__ <span class="default-arabic" lang="ar">دليل</span></strong></a>
+    <div class="header-actions"><span class="accelerator" data-text="accelerator">Solution accelerator</span><button id="language" type="button" lang="ar">العربية</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="library" aria-label="Source collection">
+      <div class="eyebrow" data-text="collection">SOURCE COLLECTION</div>
+      <h2 data-text="gazette">Abu Dhabi<br>Official Gazette</h2>
+      <div class="year">2026 <span data-text="issues">8 Arabic issues</span></div>
+      <div class="library-rule"></div>
+      <a class="source-link" href="https://www.abudhabi.gov.ae/ar/policies-and-legislations" target="_blank" rel="noopener noreferrer" data-text="originals">Original publications ↗</a>
+      <ul class="issue-list" id="issueList"></ul>
+      <p class="legal" data-text="legal">Public-source demonstration. Not an official government service or legal advice.</p>
+      <section class="history-controls" aria-label="Conversation history">
+        <label class="history-switch"><input id="historyToggle" type="checkbox" role="switch" disabled><span data-text="saveHistory">Save conversations</span></label>
+        <p id="historyStatus" class="legal" role="status"></p>
+        <ul id="conversationList" class="conversation-list"></ul>
+        <button id="deleteHistory" type="button" data-text="deleteHistory" disabled>Delete saved history</button>
+      </section>
+      <div class="technology">Microsoft Agent Framework<span>Azure AI Search · Foundry IQ</span></div>
+    </aside>
+    <section class="conversation" aria-label="Conversation">
+      <div class="conversation-heading"><h1 data-text="title">Policy conversation</h1><button id="clear" type="button" data-text="newChat">New conversation</button></div>
+      <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions">
+        <div class="welcome" id="welcome">
+          <div class="wordmark" aria-hidden="true">__APP_TITLE__<span class="default-arabic" lang="ar">دليل</span></div>
+          <h2 data-text="welcome">What would you like to know?</h2>
+        </div>
+      </div>
+      <form id="composer" class="composer">
+        <label class="sr-only" for="prompt" data-text="inputLabel">Your policy question</label>
+        <textarea id="prompt" dir="auto" maxlength="4000" rows="2" placeholder="Ask about the 2026 gazettes..."></textarea>
+        <div class="composer-footer"><span id="status" role="status" data-text="ready">Ready</span><span id="counter">0 / 4000</span><button id="send" type="submit" data-text="send">Send</button></div>
+      </form>
+      <p class="disclaimer" data-text="disclaimer">Check the original publication before relying on an answer. Publication in 2026 does not establish current legal validity.</p>
+    </section>
+  </main>
+</body>
+</html>

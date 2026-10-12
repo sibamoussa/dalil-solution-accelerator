@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.venv-maf/
+venv/
+
+# Secrets and local config (never commit these)
+.env
+.env.*
+!.env.example
+.env.local
+.env.production
+.env.development.local
+.searchkey
+.imagetag
+
+# Logs and local artifacts
+*.log
+policy-index-*.json
+infra/main.json
+infra/main.parameters.local.json
+.copilot-azure/
+
+# OS
+.DS_Store
+Thumbs.db
