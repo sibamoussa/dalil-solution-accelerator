@@ -167,8 +167,13 @@ It creates an isolated UAE North app stack, with Cosmos in a separately chosen r
 The current Dalil deployment has been validated, but each customer must independently
 check quota, model availability, governance, network policy, residency and costs. For
 the service map, see [DALIL_AZURE_ARCHITECTURE.md](DALIL_AZURE_ARCHITECTURE.md).
-For later releases of an existing deployment, review [deploy.ps1](deploy.ps1) and
-[.env.example](.env.example); never commit the populated private environment file.
+For later releases of an existing deployment, review [deploy.ps1](deploy.ps1) and the [`.env.example` template](.env.example). To use `deploy.ps1`, copy the template to a local `.env` and fill in its placeholders:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+`.env` contains deployment-specific settings and may contain secrets; it is git-ignored and must never be committed. The `.env` file is for `deploy.ps1` (updating an existing deployment). It is not required for `run-local.ps1` or the new-customer `deploy-customer.ps1` workflow above.
 
 ### Cost Snapshot
 
