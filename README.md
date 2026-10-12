@@ -4,24 +4,12 @@ Microsoft Fluent-inspired policy conversation accelerator using Microsoft Agent
 Framework, Azure AI Search Foundry IQ, and Azure OpenAI. Public-source demonstration,
 not an official Microsoft or government product or legal advice.
 
-## Customer Configuration
+## Start Here
 
-The checked-in [accelerator.json](accelerator.json) preserves the current Dalil
-branding and eight-gazette collection. Create a separate profile from a public URL:
+Choose one run mode. Commands below are for Windows PowerShell and run from the Dalil
+repository root. Python 3.13 is required.
 
-```powershell
-python configure_accelerator.py --website https://policies.example.org/policies --output customer.json
-python policy_sources.py --config customer.json --output sources/policies.json
-```
-
-Install the dependencies below first. Review the discovered document list before
-ingestion: a website may include unrelated pages. See
-[ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) for formats, branding, history privacy,
-and the deployment boundary.
-
-## Local Development
-
-Python 3.13 and PowerShell 7.4+ are required. From this directory:
+### A. Open the UI locally
 
 ```powershell
 python -m venv .venv
@@ -30,31 +18,140 @@ python -m venv .venv
 .\run-local.ps1
 ```
 
-Open http://127.0.0.1:8767. Without explicit cloud resource names the UI runs, but
-chat returns an honest HTTP 503 configuration message. No mock answers or shared
-resource fallback are used. After provisioning and `az login`:
+Open <http://127.0.0.1:8767>. The UI loads without Azure, but chat returns HTTP 503
+until dedicated Azure Search and Azure OpenAI resource names are supplied. This is
+intentional; Dalil does not generate mock answers or fall back to another project's data.
+
+### B. Run locally with Azure-backed chat
+
+You need an existing Dalil Search service and OpenAI account with the configured model
+deployments. Sign in with Azure CLI; your identity needs Search Index Data Reader and
+Cognitive Services OpenAI User on those resources.
 
 ```powershell
-.\run-local.ps1 -SearchService <DALIL_SEARCH_NAME> -OpenAIAccount <DALIL_OPENAI_NAME>
+az login
+.\run-local.ps1 -Config accelerator.json -SearchService <SEARCH_NAME> -OpenAIAccount <OPENAI_ACCOUNT_NAME> -Port 8769
 ```
 
-Local CLI identity needs Search Index Data Reader and Cognitive Services OpenAI
-User on the new services. The deployed app uses its own managed identity.
+Use `-Config customer.json` for a separate customer profile. Local Cosmos history is
+optional: add `-CosmosEndpoint <COSMOS_ENDPOINT>` only when that account already exists
+and your Azure CLI identity has Cosmos data-plane permission. The deployed app uses its
+managed identity instead.
+
+### C. Deploy a new customer collection
+
+This provisions billable Azure resources, ingests reviewed documents, builds a container
+in the customer's ACR, and deploys a Container App. It does not deploy into Dalil's
+existing resource group.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.lock
+az login
+.\.venv\Scripts\python.exe configure_accelerator.py --website https://policies.example.org/policies --name policies --output customer.json
+.\.venv\Scripts\python.exe policy_sources.py --config customer.json --output sources/policies.json
+```
+
+Review `sources/policies.json`. Remove unrelated documents and check `skipped` and
+`truncated`; public access is not permission to download or redistribute. Then deploy:
+
+```powershell
+.\deploy-customer.ps1 -Subscription <SUBSCRIPTION_ID> -Website https://policies.example.org/policies -Name policies -ConfigPath customer.json
+```
+
+The script requires you to type `INGEST`, previews a Bicep what-if, then requires
+`DEPLOY`. Read the preview before approving. If a matching project resource group
+already exists, deployment stops unless you explicitly add `-UpdateExisting` after
+reviewing the preview. Model or regional capacity failures stop deployment; the script
+does not silently choose another model or region.
+
+Conversation history is a separate, billable Cosmos DB Serverless add-on. It is not
+provisioned by the command above. To request it, explicitly choose a supported Cosmos
+region:
+
+```powershell
+.\deploy-customer.ps1 -Subscription <SUBSCRIPTION_ID> -Website https://policies.example.org/policies -Name policies -ConfigPath customer.json -EnableConversationHistory -CosmosRegion swedencentral
+```
+
+The script asks for confirmation and an extra data-residency confirmation outside UAE
+North. Supported-region listing is not a capacity guarantee; the generic Azure quota
+CLI does not report Cosmos capacity. Check governance too: this Dalil subscription had
+an inherited policy that disabled Cosmos public networking and required a resource-level
+exception for its Container App to reach the database. Your subscription may differ.
+Even after provisioning, each browser must enable **Save conversations** before chats
+are persisted.
+
+## What to Change
+
+| Goal | Edit this | What it changes |
+| --- | --- | --- |
+| Use another policy website | Generate a new `customer.json` with `configure_accelerator.py` | Source URL, initial allowed host/path, resource collection names. The generator refuses to overwrite a profile. |
+| Restrict crawling | `source.allowedHosts`, `source.pathPrefixes`, `maxDocuments`, `maxPages` in `customer.json` | Which public pages/files discovery may consider. Keep hosts and paths narrow. |
+| Select documents | `sources/<collection>.json` after `policy_sources.py` | The reviewed `documents` list actually sent to ingestion. Check `skipped` and `truncated`. |
+| Change branding | `branding.title`, `organization`, `shortName`, `accentColor`, `logo` in `customer.json` | Application title, organization, theme accent, and image. Put the image under `webapp/assets/`; use a path like `/assets/customer-logo.png`. |
+| Change model deployments | `resources.chatModel*` and `embeddingModel*` in `customer.json` | Model, version, SKU, deployment name, and capacity. Confirm availability/quota in the target subscription and region first. |
+| Change saved-history lifetime | `history.retentionDays` in `customer.json` | TTL/cookie lifetime. This does not provision Cosmos; use the explicit deployment switches above. |
+| Change UI or answer behavior | `webapp/assets/` or `webapp/main.py` | Frontend appearance or chat behavior. Run tests, build a new image, and deploy it. |
+| Change Azure resources | `infra/main.bicep`, `infra/modules/`, and deployment scripts | Infrastructure and regional placement. Preview a fresh what-if and review it before deploying. |
+
+Do not edit `accelerator.json` to create a customer deployment: it is the checked-in
+Dalil demo profile. Create a separate `customer.json` for each collection. Never put
+credentials, access keys, tokens, or other secrets in either profile.
 
 ## Corpus
 
 Eight Arabic 2026 Abu Dhabi Official Gazette PDFs, issues 1-8, are pinned in
 [sources/gazettes-2026.json](sources/gazettes-2026.json). Arabic and English questions
-are supported over the Arabic evidence; English answers are not official translations.
+are supported over the Arabic evidence. Answers follow the question's language;
+English answers are not official translations of the Arabic source documents.
 Documents are independently downloaded from the government's
 [policy page](https://www.abudhabi.gov.ae/ar/policies-and-legislations).
 No private corpus, older publications, or existing project's Search data is reused.
 
-See [FOUNDRY_IQ_INGESTION.md](FOUNDRY_IQ_INGESTION.md) for reproducible download,
-OCR, upload, and idempotent resumption. Public availability does not establish a
-redistribution license: the accelerator ships URLs and code, not repackaged PDFs.
+Public availability does not establish a redistribution license: the accelerator ships
+URLs and code, not repackaged PDFs.
 
-## Deployment
+### Ingest the bundled gazettes
+
+The eight-file manifest is `sources/gazettes-2026.json`. This ingestion path uses
+Foundry IQ file knowledge sources, Azure AI Search, Azure OpenAI embeddings, and
+Document Intelligence Read OCR. It is separate from the customer website discovery
+flow above.
+
+Install the ingestion-only dependencies in a clean environment and sign in with an
+identity that can use the target services. The operator needs Document Intelligence
+OCR permission and permission to manage the Search knowledge source/index. `SEARCH_KEY`
+is optional for ingestion and must not be committed or printed; the running app uses
+managed identity.
+
+```powershell
+python -m venv .venv-ingestion
+.\.venv-ingestion\Scripts\python.exe -m pip install -r requirements-foundry-ingestion.txt
+az login
+```
+
+First validate and download the pinned source files without uploading or running
+billable OCR:
+
+```powershell
+.\.venv-ingestion\Scripts\python.exe ingest_gazettes_foundry.py --manifest sources/gazettes-2026.json --search-endpoint https://<SEARCH_NAME>.search.windows.net --openai-endpoint https://<OPENAI_ACCOUNT>.openai.azure.com --document-intelligence-endpoint https://<DOCUMENT_INTELLIGENCE_ACCOUNT>.cognitiveservices.azure.com
+```
+
+Only after reviewing the source manifest, costs, and permissions, repeat the command
+with `--apply` to create/update the Foundry IQ file source and ingest. The command uses
+the independent Dalil corpus; it never reads another project's Search index or storage.
+SHA checks and an OCR-version marker skip unchanged remote files. Changed, duplicate,
+failed, or unexpected files stop for review. Re-run the same command to resume and
+verify idempotence. The Foundry IQ file-source API is preview; OCR and ingestion quality
+must be verified against the resulting documents.
+
+For a generated customer collection instead, use `ingest_policies.py --config
+customer.json --search-endpoint ... --openai-endpoint ... --document-intelligence-endpoint
+...` to validate without applying, then add `--apply` only after review. This direct
+command requires already-provisioned services; `deploy-customer.ps1` runs ingestion as
+part of its guided deployment flow.
+
+## Azure Deployment Notes
 
 The Dalil application is hosted on Azure Container Apps. This repository is a
 customer-ready accelerator; it does not include customer credentials, deployment
@@ -65,71 +162,13 @@ review the governance policies that apply to your subscription. The generic Azur
 CLI does not expose Cosmos DB capacity. GlobalStandard model processing may occur
 outside the resource region; confirm model data-residency requirements separately.
 
-### New Customer Deployment
-
-1. Install Python 3.13 dependencies using `requirements-dev.lock`, install Azure CLI,
-  sign in with `az login`, and select a subscription you are authorized to use.
-2. Create a profile from the website. Use a distinct short lowercase name per
-  collection:
-
-  ```powershell
-  .\.venv\Scripts\python.exe configure_accelerator.py --website https://policies.example.org/policies --name policies --output customer.json
-  ```
-
-3. Add permitted document/CDN hosts and narrow `pathPrefixes` in `customer.json` as
-  needed. Put your logo under `webapp/assets/`, then set `branding.logo`, title,
-  organization, short name and accent color. The Dalil profile and logo remain unchanged.
-4. Discover and review the bounded document manifest before any resources are created:
-
-  ```powershell
-  .\.venv\Scripts\python.exe policy_sources.py --config customer.json --output sources/policies.json
-  ```
-
-  Edit `documents` to remove irrelevant entries; check `skipped` and `truncated` too.
-  Public accessibility does not grant rights to download or redistribute.
-5. Run the bootstrap with the same website/name. It reuses an existing profile and
-  reviewed manifest. It refuses to reuse an existing project resource group unless
-  you explicitly pass `-UpdateExisting` after reviewing its what-if. It will show the
-  manifest, require `INGEST`, run a Bicep
-  `what-if`, and separately require `DEPLOY` before creating billable resources:
-
-  ```powershell
-  .\deploy-customer.ps1 -Subscription <SUBSCRIPTION_ID> -Website https://policies.example.org/policies -Name policies -ConfigPath customer.json
-  ```
-
-  It creates an isolated resource group and UAE North Container Apps, ACR, Search,
-  OpenAI, Document Intelligence, Key Vault, managed identity and monitoring; then
-  ingests the reviewed source, builds in that customer's ACR, deploys the image and
-  probes `/healthz`. Cosmos and the history API are not provisioned/enabled by default.
-  To opt into the add-on, pass `-EnableConversationHistory -CosmosRegion <region>`.
-  The script checks that Azure lists the region for Cosmos accounts and asks for typed
-  billing and, outside UAE North, data-residency confirmation. The Cosmos quota API is
-  unsupported for the tested regions, so the script cannot verify capacity; a successful
-  region-list check is not a capacity guarantee. History saving also remains off in each
-  browser until that browser opts in. For UAE North, use `-CosmosRegion uaenorth` only
-  after obtaining capacity approval. `-UpdateExisting` does not delete an already
-  provisioned Cosmos account; it disables runtime history but the account may continue
-  billing until separately reviewed and removed.
-  If model quota/capacity is unavailable, provisioning stops rather than silently
-  changing region or model. Pass `-Rediscover` only when intentionally replacing the
-  saved manifest from website discovery.
-
-The subscription owner must provide Azure login, role-assignment permission, model
-availability/quota and billing approval. A website URL alone cannot supply them.
-The bootstrap has not yet been exercised against a newly provisioned customer stack;
-the currently running Dalil deployment remains unchanged.
-
-```powershell
-.\provision-dedicated.ps1 -Subscription <SUBSCRIPTION_ID> -EnvironmentName dev -IngestGazettes
-```
-
-This legacy command creates billable resources, ingests the checked-in gazette corpus,
-builds in the new ACR and deploys the container. Use [deploy-customer.ps1](deploy-customer.ps1)
-for a customer profile and reviewed website manifest.
-For later releases use [deploy.ps1](deploy.ps1) with a private environment file based
-on [.env.example](.env.example). Keep secrets out of source control.
-
-See [DALIL_AZURE_ARCHITECTURE.md](DALIL_AZURE_ARCHITECTURE.md) for the service map.
+The customer deployment flow is in [Start Here](#c-deploy-a-new-customer-collection).
+It creates an isolated UAE North app stack, with Cosmos in a separately chosen region.
+The current Dalil deployment has been validated, but each customer must independently
+check quota, model availability, governance, network policy, residency and costs. For
+the service map, see [DALIL_AZURE_ARCHITECTURE.md](DALIL_AZURE_ARCHITECTURE.md).
+For later releases of an existing deployment, review [deploy.ps1](deploy.ps1) and
+[.env.example](.env.example); never commit the populated private environment file.
 
 ### Cost Snapshot
 
@@ -145,43 +184,37 @@ Storage transactions and content are variable and are not included. Actual regio
 prices, free grants, taxes, quota and model availability can differ; this is not a
 complete estimate or a spending cap.
 
-## Demo Boundaries
+## Safety and Limits
 
-- Public endpoint with global per-process limits: 12 combined chat/history requests/minute and 2
-  concurrent requests; excess requests return HTTP 429 and Retry-After.
-- Maximum request body 32 KiB, question 4,000 characters, history 10 messages with
-  user/assistant roles only; request body read timeout 10 seconds.
-- One Uvicorn worker and one Container App replica. Limits reset on restart and are
-  not a distributed security perimeter. Add a gateway/distributed limiter before scaling.
-- Model/retrieval timeouts and token budgets are bounded. Quota and billing alerts
-  are not hard spending caps. Set a budget and monitor usage before public sharing.
-- Citations allow only URLs in the reviewed source manifest. Invalid citations abstain; unavailable
-  enabled verification degrades to excerpts rather than accepting generated claims.
-- Foundry IQ file sources use a preview API. OCR can contain errors. Publication in
-  2026 does not prove current legal validity or applicability.
-- Website discovery is bounded by allowed hosts, paths, document/page limits and file
-  size, but does not determine whether a page is authoritative policy. Review the
-  generated manifest before ingestion. Public access is not a redistribution license.
-- Conversation saving is off by default, even after Cosmos is provisioned. History
-  belongs to an anonymous browser cookie, not an authenticated account. Shared browsers
-  share history; clearing or losing the cookie loses access. Do not use for confidential
-  content without authentication and an appropriate access-control design.
-- Turning saving off stops future writes; it does not delete prior history. Use the
-  explicit delete action. Cosmos TTL applies to a browser's whole record and resets when
-  it changes, so it does not guarantee physical per-conversation deletion exactly at
-  the configured age. Backups have separate retention settings.
-- The history toggle controls Cosmos persistence only: questions and recent context
-  still go to Search and the model. History failures do not discard successful answers.
-- New customers need their own Azure subscription, permissions, quota and billing
-  authorization. A policy website link cannot grant these. Model quota/availability
-  must be checked per subscription; the template will not silently switch model/region.
-- Direct package requirements are pinned and deployment installs use a transitive
-  version lock. Updating dependencies requires regenerating and testing both runtime
-  and development locks. These locks pin versions but do not pin wheel hashes; enable
-  hash-checking mode before treating this as a supply-chain-locked production build.
+- Demo limits are per process: 12 combined chat/history requests per minute and 2
+  concurrent requests. They are not a distributed security perimeter.
+- Request bodies are limited to 32 KiB, questions to 4,000 characters, and history to
+  10 messages. One worker and one Container App replica are configured by default.
+- Citations must match the reviewed source manifest. Invalid citations abstain; failed
+  enabled verification degrades to evidence excerpts rather than accepting claims.
+- OCR may be inaccurate. Publication in 2026 does not prove current legal validity or
+  applicability. Review sources and obtain permission to download/process them.
+- History is tied to an anonymous browser cookie, not a user account. Shared browsers
+  share that browser's history; losing the cookie loses access. Do not use for sensitive
+  data without an appropriate authentication and access-control design.
+- Turning saving off stops future writes but does not delete prior history. Use the
+  delete action. Cosmos TTL applies to the browser record and resets when it changes;
+  it does not guarantee physical per-conversation deletion at an exact age. Backups
+  have separate retention.
+- Questions still go to Search and the model when saving is off. History failures do
+  not discard a successful answer.
+- Lock files pin dependency versions but do not pin wheel hashes. Regenerate and test
+  runtime/development locks when dependencies change; do not describe them as
+  hash-verified supply-chain locks.
 
-UI sources live in [webapp/assets/index.html](webapp/assets/index.html),
-[webapp/assets/dalil.css](webapp/assets/dalil.css), and
-[webapp/assets/dalil.js](webapp/assets/dalil.js). Framework execution is in
-[webapp/agent_runtime.py](webapp/agent_runtime.py) and
-[webapp/grounded_workflow.py](webapp/grounded_workflow.py).
+## Code Map
+
+- UI: `webapp/assets/index.html`, `webapp/assets/dalil.css`, `webapp/assets/dalil.js`
+- API and grounded response pipeline: `webapp/main.py`, `webapp/agent_runtime.py`,
+  `webapp/grounded_workflow.py`
+- Browser history: `webapp/conversation_history.py`
+- Customer profile validation: `webapp/accelerator_config.py`
+- Website discovery and document review: `policy_sources.py`
+- Customer and pinned-gazette ingestion: `ingest_policies.py`, `ingest_gazettes_foundry.py`
+- Infrastructure: `infra/main.bicep`, `infra/modules/`
+- Local and Azure startup: `run-local.ps1`, `deploy-customer.ps1`
