@@ -63,6 +63,9 @@ foreach ($line in Get-Content $EnvFile) {
 }
 
 # Deployment target: explicit params win, otherwise fall back to .env keys.
+if ($SyncEnv -and $settings["COMPASS_API_KEY"]) {
+    throw 'Do not sync COMPASS_API_KEY as plain text. Configure a Container Apps secret reference and leave this .env value blank.'
+}
 if (-not $ResourceGroup) { $ResourceGroup = $settings["AZURE_RESOURCE_GROUP"] }
 if (-not $ContainerApp)  { $ContainerApp  = $settings["AZURE_CONTAINER_APP"] }
 if (-not $Registry)      { $Registry      = $settings["AZURE_CONTAINER_REGISTRY"] }

@@ -12,11 +12,23 @@ param(
     [string]$ChatDeployment = "",
     [string]$Config = "accelerator.json",
     [string]$CosmosEndpoint = "",
+    [ValidateSet('azure_openai','compass')][string]$ModelProvider = 'azure_openai',
+    [string]$CompassEndpoint = "",
+    [ValidateSet('api-key','Ocp-Apim-Subscription-Key')][string]$CompassAuthHeader = 'api-key',
     [int]$Port = 8767,
     [string]$PythonPath = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+$env:MODEL_PROVIDER = $ModelProvider
+if ($ModelProvider -eq 'compass') {
+    if (-not $CompassEndpoint -or -not $env:COMPASS_API_KEY) {
+        throw 'Compass requires -CompassEndpoint and COMPASS_API_KEY in the process environment. Do not pass keys as command arguments.'
+    }
+    $env:COMPASS_ENDPOINT = $CompassEndpoint
+    $env:COMPASS_AUTH_HEADER = $CompassAuthHeader
+}
 
 if (-not $PythonPath) {
     $PythonPath = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"

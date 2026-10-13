@@ -34,7 +34,7 @@ import conversation_history
 
 from retrieval_fusion import fuse_and_dedupe, MAX_CHUNKS_PER_DOC
 from foundry_retrieval import public_source_url, retrieve as retrieve_foundry
-from agent_runtime import run_model
+from agent_runtime import compass_settings, model_provider, run_model
 from grounded_workflow import run_grounded_workflow
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,11 @@ AOAI_FAST_ENDPOINT = _env_text("AOAI_FAST_ENDPOINT") or AOAI_CHAT_ENDPOINT
 AOAI_FAST_API_KEY = _env_text("AOAI_FAST_API_KEY") or AOAI_CHAT_API_KEY
 AOAI_FAST_BEARER_TOKEN = _env_text("AOAI_FAST_BEARER_TOKEN") or AOAI_CHAT_BEARER_TOKEN
 AOAI_FAST_TIMEOUT_SECONDS = int(os.getenv("AOAI_FAST_TIMEOUT_SECONDS", "10"))
+
+MODEL_PROVIDER = model_provider()
+if MODEL_PROVIDER == "compass":
+    AOAI_CHAT_ENDPOINT = compass_settings()[0]
+    AOAI_FAST_ENDPOINT = AOAI_CHAT_ENDPOINT
 
 # --- Query understanding ---------------------------------------------------
 QUERY_CONTEXTUALIZATION_ENABLED = _env_flag("QUERY_CONTEXTUALIZATION_ENABLED")
@@ -646,7 +651,7 @@ def _auth_headers(api_key: str, bearer_token: str) -> dict[str, str]:
 
 
 def _has_auth(headers: dict[str, str]) -> bool:
-    return "api-key" in headers or "Authorization" in headers
+    return any(header in headers for header in ("api-key", "Authorization", "Ocp-Apim-Subscription-Key"))
 
 
 @lru_cache(maxsize=1)
@@ -675,10 +680,15 @@ def _search_headers() -> dict[str, str]:
 
 
 def _aoai_chat_headers() -> dict[str, str]:
+    if MODEL_PROVIDER == "compass":
+        _, _, key, header = compass_settings()
+        return {header: key}
     return _auth_headers(AOAI_CHAT_API_KEY, _aoai_bearer_token(AOAI_CHAT_BEARER_TOKEN))
 
 
 def _fast_model_headers() -> dict[str, str]:
+    if MODEL_PROVIDER == "compass":
+        return _aoai_chat_headers()
     return _auth_headers(AOAI_FAST_API_KEY, _aoai_bearer_token(AOAI_FAST_BEARER_TOKEN))
 
 
