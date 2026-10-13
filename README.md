@@ -144,13 +144,19 @@ and questions to that external provider, including its residency and retention t
 
 ## What to Change
 
+**For model changes, choose the provider first.** Azure deployment settings belong in
+the customer profile; Compass settings belong in the server environment or local-runner
+options. See [Choose the Model Provider](#choose-the-model-provider) for the commands.
+
 | Goal | Edit this | What it changes |
 | --- | --- | --- |
 | Use another policy website | Generate a new `customer.json` with `configure_accelerator.py` | Source URL, initial allowed host/path, resource collection names. The generator refuses to overwrite a profile. |
 | Restrict crawling | `source.allowedHosts`, `source.pathPrefixes`, `maxDocuments`, `maxPages` in `customer.json` | Which public pages/files discovery may consider. Keep hosts and paths narrow. |
 | Select documents | `sources/<collection>.json` after `policy_sources.py` | The reviewed `documents` list actually sent to ingestion. Check `skipped` and `truncated`. |
 | Change branding | `branding.title`, `organization`, `shortName`, `accentColor`, `logo` in `customer.json` | Application title, organization, theme accent, and image. Put the image under `webapp/assets/`; use a path like `/assets/customer-logo.png`. |
-| Change model deployments | `resources.chatModel*` and `embeddingModel*` in `customer.json` | Model, version, SKU, deployment name, and capacity. Confirm availability/quota in the target subscription and region first. |
+| Choose Azure or Compass | `MODEL_PROVIDER=azure_openai` or `MODEL_PROVIDER=compass` in the server environment; locally use `-ModelProvider` | Selects the provider for synthesis, query rewriting, and verification. Azure is the default. |
+| Change Azure model deployments | `resources.chatModel*` and `resources.embeddingModel*` in `customer.json` | Azure model, version, SKU, deployment name, and capacity. These fields do not select the Compass model. Azure retrieval/embedding dependencies remain required with Compass. |
+| Choose a Compass model | `COMPASS_ENDPOINT` and `COMPASS_AUTH_HEADER` in the server environment; locally use `-CompassEndpoint` and `-CompassAuthHeader` | The deployment name in the full APIM URL selects the Compass model. Choose `api-key` or `Ocp-Apim-Subscription-Key`; provide `COMPASS_API_KEY` securely as a process secret or Container Apps secret reference. Do not put these settings or the key in `customer.json`. |
 | Change saved-history lifetime | `history.retentionDays` in `customer.json` | TTL/cookie lifetime. This does not provision Cosmos; use the explicit deployment switches above. |
 | Change UI or answer behavior | `webapp/assets/` or `webapp/main.py` | Frontend appearance or chat behavior. Run tests, build a new image, and deploy it. |
 | Change Azure resources | `infra/main.bicep`, `infra/modules/`, and deployment scripts | Infrastructure and regional placement. Preview a fresh what-if and review it before deploying. |
