@@ -19,7 +19,7 @@ confirm the tenant permits those services and model deployments in that region, 
 available quota, and meets your data-residency and policy requirements. The deploying
 identity needs permission to create subscription-scoped deployments/resources and role
 assignments (typically Contributor plus User Access Administrator, or an equivalent
-custom role). Review the cost section before provisioning. Source documents must be
+custom role). Review [costs](#cost-snapshot) before provisioning. Source documents must be
 approved for download and processing; public availability alone is not permission.
 
 1. Install Python 3.13, Azure CLI, and PowerShell 7. From a PowerShell terminal, clone the
@@ -90,8 +90,30 @@ approved for download and processing; public availability alone is not permissio
   capacity is unavailable.
 
 6. Open the HTTPS URL printed at completion. Ask a question answerable from a reviewed
-  document and verify the cited source. The browser's **Save conversations** option is
-  disabled until Cosmos history is separately provisioned and explicitly enabled.
+  document and verify the cited source. Without Cosmos history, conversation saving is
+  unavailable. After provisioning Cosmos, each browser must turn on **Save conversations**
+  before its chats are persisted.
+
+#### Optional: conversation history
+
+Cosmos DB history is a separate billable add-on. To add it after the main app is deployed,
+rerun the customer deployment for the existing stack, explicitly enable history, and pick
+a supported Cosmos region:
+
+```powershell
+.\deploy-customer.ps1 `
+  -Subscription <SUBSCRIPTION_ID> `
+  -Website https://policies.example.org/policies `
+  -Name policies `
+  -ConfigPath customer.json `
+  -UpdateExisting `
+  -EnableConversationHistory `
+  -CosmosRegion <COSMOS_REGION>
+```
+
+The script asks for extra confirmation, including a residency confirmation when Cosmos is
+outside UAE North. Region listing is not a capacity guarantee; the generic Azure quota CLI
+does not report Cosmos capacity. Check regional capacity and governance before proceeding.
 
 This flow removes the need to manually create Foundry IQ, Search, OpenAI, or app resources,
 but intentionally retains source-review, cost, and deployment approval gates. A tenant
@@ -100,18 +122,11 @@ before deployment can succeed.
 
 ## Configure Once
 
-Use one JSON profile for supported customer settings: [accelerator.json](accelerator.json)
-for the bundled demo, or generate `customer.json` for your own collection. You do not
-need to edit Python files, PowerShell scripts, or Bicep for ordinary configuration.
-
-| Profile section | Change here |
-| --- | --- |
-| `source` | Website, allowed hosts/paths, document limits and manifest path |
-| `branding` | Name, organization, logo path and accent color |
-| `resources` | Collection names, environment and Azure model/deployment settings |
-| `history` | Capability flag, database/container names and retention days |
-| `deployment` | Subscription, existing resource group/app/registry, local port and optional Cosmos region |
-| `runtime` | Model provider, Compass endpoint/header, existing service endpoints, response-language and quality/retrieval settings |
+Use [accelerator.json](accelerator.json) as the bundled demo profile, or generate a
+separate `customer.json` for your collection. The profile groups source, branding,
+resource, history, deployment, and runtime settings so normal setup does not require
+editing application code or Bicep. See the [configuration reference](#configuration-reference)
+for supported settings.
 
 For example, open `customer.json` and find its top-level `runtime` object. Change or add
 the entries below **inside that object**. This is only the `runtime` section; keep the
@@ -137,57 +152,29 @@ replace the full profile with the example above. Replace the example Search host
 your Search service endpoint. Compass handles model calls, but retrieval still needs
 Azure AI Search and a configured Foundry IQ knowledge base.
 
-Never put credentials in JSON. Supply `COMPASS_API_KEY` separately through a secure
-local process/secret manager, or configure it as a Container Apps secret reference for
-a deployed app. The profile validator rejects unknown settings and secret fields.
-
-For local use, sign in to Azure CLI (the signed-in identity needs access to Search),
-provide `COMPASS_API_KEY` securely in the process environment, then validate and start
-the same profile:
-
-```powershell
-az login
-.\.venv\Scripts\python.exe configure_accelerator.py --check customer.json
-.\run-local.ps1 -Config customer.json -Port 8769
-```
-
-The validation command checks the profile and prints normalized non-secret settings; it
-does not deploy resources. The runner loads `customer.json` and starts the app locally.
-After stopping the app, remove the process key with `Remove-Item Env:COMPASS_API_KEY`.
-
-For local chat, set `runtime.SEARCH_ENDPOINT` and, for Azure, `runtime.AOAI_CHAT_ENDPOINT`
-to your existing services. Compass reads `runtime.COMPASS_ENDPOINT` instead. Explicit
-process environment settings take precedence over profile defaults; local command
-arguments override the corresponding runner setting. Restart after changing the profile.
-
-For a new stack, set `deployment.subscription`, then run
-`deploy-customer.ps1 -ConfigPath customer.json`; names, website and environment are read
-from the profile. Cosmos creation still requires `-EnableConversationHistory` and consent.
-For an existing stack, fill `deployment.resourceGroup`, `containerApp` and `registry`,
-then run `deploy.ps1 -Config customer.json -SyncEnv` to rebuild and apply runtime settings.
-An optional `.env` file can supply overrides for `deploy.ps1`; it is not used by the
-new-customer deployment or local runner. See [the existing-app `.env` steps](#optional-env-for-an-existing-deployment).
-Review the target subscription before deploying; these commands incur charges.
+Never put credentials in JSON. Supply `COMPASS_API_KEY` through a local process or
+secret manager, or as a Container Apps secret reference. The profile validator rejects
+unknown settings and secret fields. For execution, follow either [the local run steps](#run-locally-with-existing-azure-services)
+or the [new-customer deployment steps](#deploy-end-to-end-in-a-customer-tenant).
 
 Changes are not live edits: local changes require a restart; deployed changes require
 an image rebuild/rollout. Source changes also require rediscovery, document review and
 ingestion. This profile does not support arbitrary region migrations, network topology,
 new API behavior or other code/infrastructure redesigns.
 
-## Run the Solution
+## Run locally with existing Azure services
 
-Choose one run mode. Commands below are for Windows PowerShell and run from the Dalil
-repository root. Python 3.13 is required.
-
-### A. Run locally with Azure-backed chat
-
-You need an existing Dalil Search service with a populated Foundry IQ knowledge base,
-and an OpenAI account with the configured model deployments. Sign in with Azure CLI;
-your identity needs Search Index Data Reader and Cognitive Services OpenAI User on those
-resources. The app and local runner refuse to start until both endpoints are configured.
+This is for development when you already have a populated Azure AI Search Foundry IQ
+knowledge base and Azure OpenAI deployment. It does not create resources or ingest
+documents. Use the end-to-end customer deployment above if those services do not exist.
+Commands are for Windows PowerShell from the repository root; Python 3.13 is required.
+The signed-in Azure CLI identity needs Search Index Data Reader and Cognitive Services
+OpenAI User on those resources. The app and local runner refuse to start until both
+endpoints are configured.
 
 ```powershell
 az login
+.\.venv\Scripts\python.exe configure_accelerator.py --check accelerator.json
 .\run-local.ps1 -Config accelerator.json -SearchService <SEARCH_NAME> -OpenAIAccount <OPENAI_ACCOUNT_NAME> -Port 8769
 ```
 
@@ -196,28 +183,6 @@ optional: add `-CosmosEndpoint <COSMOS_ENDPOINT>` only when that account already
 and your Azure CLI identity has Cosmos data-plane permission. The deployed app uses its
 managed identity instead.
 
-### B. Deploy a new customer collection
-
-For a tenant without existing Dalil services, follow the numbered [end-to-end customer
-deployment steps](#deploy-end-to-end-in-a-customer-tenant) above. This provisions billable
-Azure resources, ingests the reviewed manifest, builds the app image in the customer's
-registry, and deploys an isolated Container App stack.
-
-Conversation history is a separate, billable Cosmos DB Serverless add-on. It is not
-provisioned by the command above. To request it, explicitly choose a supported Cosmos
-region:
-
-```powershell
-.\deploy-customer.ps1 -Subscription <SUBSCRIPTION_ID> -Website https://policies.example.org/policies -Name policies -ConfigPath customer.json -EnableConversationHistory -CosmosRegion swedencentral
-```
-
-The script asks for confirmation and an extra data-residency confirmation outside UAE
-North. Supported-region listing is not a capacity guarantee; the generic Azure quota
-CLI does not report Cosmos capacity. Check governance too: this Dalil subscription had
-an inherited policy that disabled Cosmos public networking and required a resource-level
-exception for its Container App to reach the database. Your subscription may differ.
-Even after provisioning, each browser must enable **Save conversations** before chats
-are persisted.
 
 ## Choose the Model Provider
 
@@ -232,8 +197,9 @@ environment variables and runner flags below are optional explicit overrides.
 
 This choice is server configuration, not a browser control. **Both options still require
 Azure AI Search/Foundry IQ retrieval and Azure embedding deployments for ingestion and
-retrieval.** The new-customer bootstrap still provisions those Azure resources, including
-the Azure chat deployment used by Foundry IQ. Compass does not remove that dependency.
+retrieval.** The customer deployment provisions Azure OpenAI chat for answers and an
+embedding deployment for Foundry IQ ingestion/retrieval. Compass replaces the chat model;
+it does not remove the Search or embedding dependency.
 
 ### Use Compass locally
 
@@ -271,7 +237,8 @@ In CI or another hosted environment, use the platform's secret store to inject
 
 If your gateway expects `Ocp-Apim-Subscription-Key`, use that value for
 `-CompassAuthHeader`. No bearer prefix is added. To return to Azure, run the local
-command in section A with `-ModelProvider azure_openai` (or omit the option).
+command in [the Azure OpenAI local-run section](#run-locally-with-existing-azure-services)
+with `-ModelProvider azure_openai` (or omit the option).
 
 ### Use Compass in an existing Container App
 
@@ -300,8 +267,8 @@ Keep the existing Search and history settings. To rotate the key, update the Con
 secret value and create/restart a revision if the portal does not do so automatically. To
 switch back to Azure OpenAI, set `MODEL_PROVIDER` to
 `azure_openai` and ensure the `AOAI_*` endpoint settings are present. Use
-[.env.example](.env.example) as the settings reference. **Do not use `deploy.ps1 -SyncEnv`
-to upload a plain-text Compass key.** The local runner does not automatically load `.env`.
+the [existing-app deployment instructions](#update-an-existing-deployment) for
+`.env` usage. **Do not use `deploy.ps1 -SyncEnv` to upload a plain-text Compass key.**
 
 Compass must return OpenAI chat-completions responses and support Dalil's structured
 JSON output requests (`json_schema` and `json_object`). Unsupported requests fail the
@@ -310,11 +277,11 @@ This adapter has mocked HTTP coverage for routing and both key headers; live Com
 model capabilities are not yet verified. Confirm authorization to send policy excerpts
 and questions to that external provider, including its residency and retention terms.
 
-## What to Change
+## Configuration reference
 
-**For model changes, choose the provider first.** Azure deployment settings belong in
-the customer profile; Compass settings belong in the server environment or local-runner
-options. See [Choose the Model Provider](#choose-the-model-provider) for the commands.
+Use the customer profile for supported non-secret settings. Compass keys belong in a
+secret store, never in the profile. See [Model Provider](#choose-the-model-provider)
+for provider details.
 
 | Goal | Edit this | What it changes |
 | --- | --- | --- |
@@ -383,21 +350,20 @@ For a generated customer collection, `ingest_policies.py --config customer.json
 without applying. Add `--apply` only after reviewing the manifest. It requires the
 services to exist already; `deploy-customer.ps1` invokes this flow during deployment.
 
-## Azure Deployment Notes
+## Architecture
 
-The command for a new customer collection is in the [end-to-end customer deployment steps](#deploy-end-to-end-in-a-customer-tenant).
-It targets an isolated UAE North application stack; Cosmos has its own optional region.
-Each customer must check model availability, service capacity, governance, data residency,
-permissions, and cost in their own subscription. The generic Azure quota CLI does not
-report Cosmos capacity. GlobalStandard model processing may occur outside the resource
-region; verify model residency requirements separately.
+The current Dalil demo is an example, not a subscription or resource set for customers
+to reuse. See [DALIL_AZURE_ARCHITECTURE.md](DALIL_AZURE_ARCHITECTURE.md) for the service
+map. The first-time deployment region and customer prerequisites are documented in
+[Start Here](#deploy-end-to-end-in-a-customer-tenant). GlobalStandard model processing
+may occur outside the resource region; verify residency requirements separately.
 
-The current Dalil demo has been deployed and verified, including optional browser
-history in Sweden Central. It is an example, not a subscription or resource set for
-customers to reuse. See [DALIL_AZURE_ARCHITECTURE.md](DALIL_AZURE_ARCHITECTURE.md) for
-the service map.
+## Update an existing deployment
 
-### Optional .env for an existing deployment
+This path is only for an already provisioned Container App. New customer provisioning is
+covered in [Start Here](#deploy-end-to-end-in-a-customer-tenant).
+
+### Optional .env file
 
 Use this only to rebuild/update an **already provisioned** Container App with
 `deploy.ps1`. Skip it for a new tenant deployment (`deploy-customer.ps1`) and for local
@@ -405,34 +371,34 @@ development (`run-local.ps1`); neither of those commands reads `.env`.
 
 1. Copy the template from the repository root:
 
-  ```powershell
-  Copy-Item .env.example .env
-  ```
+   ```powershell
+   Copy-Item .env.example .env
+   ```
 
 2. Open `.env` and fill the existing deployment target values if they are not already
-  set in the selected profile: `AZURE_RESOURCE_GROUP`, `AZURE_CONTAINER_APP`, and
-  `AZURE_CONTAINER_REGISTRY`. `AZURE_IMAGE_NAME` is optional. Keep non-secret runtime
-  settings in `customer.json` where possible; non-empty `.env` values override profile
-  values when `deploy.ps1` reads them.
+   set in the selected profile: `AZURE_RESOURCE_GROUP`, `AZURE_CONTAINER_APP`, and
+   `AZURE_CONTAINER_REGISTRY`. `AZURE_IMAGE_NAME` is optional. Keep non-secret runtime
+   settings in `customer.json` where possible; non-empty `.env` values override profile
+   values when `deploy.ps1` reads them.
 3. Leave credential fields such as `SEARCH_KEY`, `AOAI_*_API_KEY`, bearer tokens, and
-  `COMPASS_API_KEY` blank. `deploy.ps1 -SyncEnv` sends non-empty `.env` settings to the
-  Container App. For Azure services, use managed identity; for Compass, configure the
-  key in **Container Apps > Settings > Secrets** and set `COMPASS_API_KEY` to the
-  `secretref:compass-api-key` reference as described above. Never put real credentials
-  in `.env` or commit it; `.env` is git-ignored.
+   `COMPASS_API_KEY` blank. `deploy.ps1 -SyncEnv` sends non-empty `.env` settings to the
+   Container App. For Azure services, use managed identity; for Compass, configure the
+   key in **Container Apps > Settings > Secrets** and set `COMPASS_API_KEY` to the
+   `secretref:compass-api-key` reference as described above. Never put real credentials
+   in `.env` or commit it; `.env` is git-ignored.
 4. Sign in to the intended Azure subscription and update the existing app:
 
-  ```powershell
-  az login
-  .\deploy.ps1 -Config customer.json -SyncEnv
-  ```
+   ```powershell
+   az login
+   .\deploy.ps1 -Config customer.json -SyncEnv
+   ```
 
-  `deploy.ps1` builds the image in the configured registry and rolls it out to the
-  existing Container App. `-SyncEnv` also applies non-empty, non-secret `.env` overrides.
-  The JSON profile can provide the deployment targets instead of `.env`; explicit
-  `deploy.ps1` parameters take precedence over both.
+   `deploy.ps1` builds the image in the configured registry and rolls it out to the
+   existing Container App. `-SyncEnv` also applies non-empty, non-secret `.env` overrides.
+   The JSON profile can provide the deployment targets instead of `.env`; explicit
+   `deploy.ps1` parameters take precedence over both.
 
-### Cost Snapshot
+## Cost snapshot
 
 UAE North retail rates checked 2026-10-09: Azure AI Search Basic is $0.101/hour
 ($73.73 for 730 hours); ACR Basic is $0.1666/day (about $5.00 for 30 days), plus
