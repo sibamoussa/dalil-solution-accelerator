@@ -6,6 +6,98 @@ not an official Microsoft or government product or legal advice.
 
 ## Start Here
 
+### Deploy end to end in a customer tenant
+
+Use this path when the tenant does not already have Dalil's Azure services. The deployment
+creates a dedicated Azure AI Search service with Foundry IQ, Azure OpenAI chat and
+embedding deployments, Document Intelligence, managed identity and role assignments,
+monitoring, Key Vault, a container registry, and the Container Apps app. You do **not**
+need to create a separate Microsoft Foundry project or Search service first.
+
+The deployment currently places the application stack in **UAE North**. Before starting,
+confirm the tenant permits those services and model deployments in that region, has
+available quota, and meets your data-residency and policy requirements. The deploying
+identity needs permission to create subscription-scoped deployments/resources and role
+assignments (typically Contributor plus User Access Administrator, or an equivalent
+custom role). Review the cost section before provisioning. Source documents must be
+approved for download and processing; public availability alone is not permission.
+
+1. Install Python 3.13, Azure CLI, and PowerShell 7. From a PowerShell terminal, clone the
+  repository and enter its folder:
+
+  ```powershell
+  git clone https://github.com/sibamoussa/dalil-solution-accelerator.git
+  cd dalil-solution-accelerator
+  ```
+
+2. Create the Python environment, install the pinned dependencies, sign in, and select
+  the customer subscription:
+
+  ```powershell
+  python -m venv .venv
+  .\.venv\Scripts\python.exe -m pip install -r requirements-dev.lock
+  az login
+  az account set --subscription <SUBSCRIPTION_ID>
+  az account show --query "{name:name,id:id,state:state}" --output table
+  ```
+
+  Confirm that the displayed subscription is the intended customer tenant/subscription.
+  Docker is not required; the deployment builds the image in the customer's Azure
+  Container Registry.
+
+3. Generate a separate customer profile for the policy website:
+
+  ```powershell
+  .\.venv\Scripts\python.exe configure_accelerator.py `
+    --website https://policies.example.org/policies `
+    --name policies `
+    --output customer.json
+  ```
+
+  Replace the example website and collection name with the customer's values. Edit
+  `customer.json` for supported branding and model settings; see [Configure Once](#configure-once).
+  Keep credentials and keys out of this file.
+
+4. Discover candidate documents and review the generated manifest:
+
+  ```powershell
+  .\.venv\Scripts\python.exe policy_sources.py `
+    --config customer.json `
+    --output sources/policies.json
+  ```
+
+  Open `sources/policies.json`. Verify every title and URL, remove documents that should
+  not be included, and check `skipped` and `truncated`. The deployment will ingest the
+  reviewed manifest to the new Foundry IQ knowledge source and knowledge base.
+
+5. Run the customer deployment:
+
+  ```powershell
+  .\deploy-customer.ps1 `
+    -Subscription <SUBSCRIPTION_ID> `
+    -Website https://policies.example.org/policies `
+    -Name policies `
+    -ConfigPath customer.json
+  ```
+
+  The script checks quota/model capacity, shows the exact manifest and asks you to type
+  `INGEST` to approve OCR and upload. It then previews the Bicep deployment with
+  `what-if`; inspect the resources and type `DEPLOY` to authorize billable provisioning.
+  It provisions the stack, ingests and verifies the files, builds the app image in ACR,
+  deploys the Container App, and checks its `/healthz` endpoint. If the project resource
+  group already exists, deployment stops unless you explicitly pass `-UpdateExisting`
+  after reviewing the what-if. It does not silently change region or model when quota or
+  capacity is unavailable.
+
+6. Open the HTTPS URL printed at completion. Ask a question answerable from a reviewed
+  document and verify the cited source. The browser's **Save conversations** option is
+  disabled until Cosmos history is separately provisioned and explicitly enabled.
+
+This flow removes the need to manually create Foundry IQ, Search, OpenAI, or app resources,
+but intentionally retains source-review, cost, and deployment approval gates. A tenant
+administrator may need to grant permissions or resolve quota, policy, and model availability
+before deployment can succeed.
+
 ## Configure Once
 
 Use one JSON profile for supported customer settings: [accelerator.json](accelerator.json)
@@ -87,30 +179,10 @@ managed identity instead.
 
 ### B. Deploy a new customer collection
 
-This provisions billable Azure resources, ingests reviewed documents, builds a container
-in the customer's ACR, and deploys a Container App. It does not deploy into Dalil's
-existing resource group.
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.lock
-az login
-.\.venv\Scripts\python.exe configure_accelerator.py --website https://policies.example.org/policies --name policies --output customer.json
-.\.venv\Scripts\python.exe policy_sources.py --config customer.json --output sources/policies.json
-```
-
-Review `sources/policies.json`. Remove unrelated documents and check `skipped` and
-`truncated`; public access is not permission to download or redistribute. Then deploy:
-
-```powershell
-.\deploy-customer.ps1 -Subscription <SUBSCRIPTION_ID> -Website https://policies.example.org/policies -Name policies -ConfigPath customer.json
-```
-
-The script requires you to type `INGEST`, previews a Bicep what-if, then requires
-`DEPLOY`. Read the preview before approving. If a matching project resource group
-already exists, deployment stops unless you explicitly add `-UpdateExisting` after
-reviewing the preview. Model or regional capacity failures stop deployment; the script
-does not silently choose another model or region.
+For a tenant without existing Dalil services, follow the numbered [end-to-end customer
+deployment steps](#deploy-end-to-end-in-a-customer-tenant) above. This provisions billable
+Azure resources, ingests the reviewed manifest, builds the app image in the customer's
+registry, and deploys an isolated Container App stack.
 
 Conversation history is a separate, billable Cosmos DB Serverless add-on. It is not
 provisioned by the command above. To request it, explicitly choose a supported Cosmos
@@ -167,7 +239,7 @@ After stopping the local server, remove the process credential with
 
 If your gateway expects `Ocp-Apim-Subscription-Key`, use that value for
 `-CompassAuthHeader`. No bearer prefix is added. To return to Azure, run the local
-command in section B with `-ModelProvider azure_openai` (or omit the option).
+command in section A with `-ModelProvider azure_openai` (or omit the option).
 
 ### Use Compass in an existing Container App
 
@@ -268,7 +340,7 @@ services to exist already; `deploy-customer.ps1` invokes this flow during deploy
 
 ## Azure Deployment Notes
 
-The command for a new customer collection is in [Start Here](#c-deploy-a-new-customer-collection).
+The command for a new customer collection is in the [end-to-end customer deployment steps](#deploy-end-to-end-in-a-customer-tenant).
 It targets an isolated UAE North application stack; Cosmos has its own optional region.
 Each customer must check model availability, service capacity, governance, data residency,
 permissions, and cost in their own subscription. The generic Azure quota CLI does not
