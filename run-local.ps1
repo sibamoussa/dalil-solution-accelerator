@@ -60,6 +60,12 @@ $openAIEndpoint = "https://$OpenAIAccount.openai.azure.com"
 if ($OpenAIAccount) { $env:AOAI_CHAT_ENDPOINT = "$openAIEndpoint/openai/deployments/$ChatDeployment/chat/completions?api-version=2024-12-01-preview" }
 if (-not $env:AOAI_FAST_ENDPOINT) { $env:AOAI_FAST_ENDPOINT = $env:AOAI_CHAT_ENDPOINT }
 if (-not $env:AOAI_USE_GENERATIVE_SYNTHESIS) { $env:AOAI_USE_GENERATIVE_SYNTHESIS = "true" }
+if (-not $env:SEARCH_ENDPOINT) {
+    throw 'Set runtime.SEARCH_ENDPOINT in the profile or pass -SearchService.'
+}
+if ($env:MODEL_PROVIDER -ne 'compass' -and -not $env:AOAI_CHAT_ENDPOINT) {
+    throw 'Set runtime.AOAI_CHAT_ENDPOINT in the profile or pass -OpenAIAccount.'
+}
 $env:APP_TITLE = $settings.branding.title
 $env:ORGANIZATION_NAME = $settings.branding.organization
 $env:ORGANIZATION_SHORT_NAME = $settings.branding.shortName

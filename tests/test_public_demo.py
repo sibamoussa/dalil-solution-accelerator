@@ -54,10 +54,19 @@ class PublicDemoTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private question", record.getMessage())
         self.assertIn("attempt=2", record.getMessage())
 
-    async def test_unconfigured_services_fail_without_cloud_call(self):
-        with patch.object(main, "SEARCH_ENDPOINT", ""), patch.object(main, "query_grounded_agent") as agent:
-            self.assertEqual(await self.request(main.app, b'{"message":"hello"}'), 503)
-            agent.assert_not_called()
+    async def test_app_startup_requires_configured_cloud_services(self):
+        with patch.object(main, "SEARCH_ENDPOINT", ""):
+            with self.assertRaisesRegex(RuntimeError, "SEARCH_ENDPOINT"):
+                async with main.app.router.lifespan_context(main.app):
+                    pass
+        with patch.object(main, "AOAI_CHAT_ENDPOINT", ""):
+            with self.assertRaisesRegex(RuntimeError, "AOAI_CHAT_ENDPOINT"):
+                async with main.app.router.lifespan_context(main.app):
+                    pass
+        with patch.object(main, "SEARCH_ENDPOINT", "https://search.example"):
+            with patch.object(main, "AOAI_CHAT_ENDPOINT", "https://openai.example"):
+                async with main.app.router.lifespan_context(main.app):
+                    pass
 
     def test_theme_assets_and_manifest(self):
         self.assertIn("Dalil", main.home())

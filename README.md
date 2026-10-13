@@ -68,24 +68,12 @@ new API behavior or other code/infrastructure redesigns.
 Choose one run mode. Commands below are for Windows PowerShell and run from the Dalil
 repository root. Python 3.13 is required.
 
-### A. Open the UI locally
+### A. Run locally with Azure-backed chat
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.lock
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\run-local.ps1
-```
-
-Open <http://127.0.0.1:8767>. The UI loads without Azure, but chat returns HTTP 503
-until dedicated Azure Search and Azure OpenAI resource names are supplied. This is
-intentional; Dalil does not generate mock answers or fall back to another project's data.
-
-### B. Run locally with Azure-backed chat
-
-You need an existing Dalil Search service and OpenAI account with the configured model
-deployments. Sign in with Azure CLI; your identity needs Search Index Data Reader and
-Cognitive Services OpenAI User on those resources.
+You need an existing Dalil Search service with a populated Foundry IQ knowledge base,
+and an OpenAI account with the configured model deployments. Sign in with Azure CLI;
+your identity needs Search Index Data Reader and Cognitive Services OpenAI User on those
+resources. The app and local runner refuse to start until both endpoints are configured.
 
 ```powershell
 az login
@@ -97,7 +85,7 @@ optional: add `-CosmosEndpoint <COSMOS_ENDPOINT>` only when that account already
 and your Azure CLI identity has Cosmos data-plane permission. The deployed app uses its
 managed identity instead.
 
-### C. Deploy a new customer collection
+### B. Deploy a new customer collection
 
 This provisions billable Azure resources, ingests reviewed documents, builds a container
 in the customer's ACR, and deploys a Container App. It does not deploy into Dalil's

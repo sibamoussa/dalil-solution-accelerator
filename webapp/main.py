@@ -10,6 +10,7 @@ the synthesis model. There is no hand-written keyword scoring: chunks are
 passed to the model verbatim, and the model reports which ones it used.
 """
 
+from contextlib import asynccontextmanager
 import asyncio
 import html
 import json
@@ -49,7 +50,26 @@ class PrivacyFilter(logging.Filter):
 
 logger.addFilter(PrivacyFilter())
 
-app = FastAPI(title="Dalil")
+def _ensure_cloud_configuration() -> None:
+    missing = [
+        name
+        for name, value in (
+            ("SEARCH_ENDPOINT", SEARCH_ENDPOINT),
+            ("AOAI_CHAT_ENDPOINT", AOAI_CHAT_ENDPOINT),
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(f"Required cloud configuration is missing: {', '.join(missing)}")
+
+
+@asynccontextmanager
+async def app_lifespan(_application: FastAPI):
+    _ensure_cloud_configuration()
+    yield
+
+
+app = FastAPI(title="Dalil", lifespan=app_lifespan)
 app.add_middleware(DemoLimits)
 app.include_router(conversation_history.router)
 CONFIG = load_config()
@@ -1857,9 +1877,6 @@ def chat(request: ChatRequest, browser_request: Request) -> JSONResponse:
     message = request.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
-
-    if not SEARCH_ENDPOINT or not AOAI_CHAT_ENDPOINT:
-        raise HTTPException(status_code=503, detail="Cloud services are not configured yet.")
 
     browser = conversation_history.owner(browser_request) if request.save_history else None
     generation = None
