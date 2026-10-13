@@ -165,7 +165,8 @@ For a new stack, set `deployment.subscription`, then run
 from the profile. Cosmos creation still requires `-EnableConversationHistory` and consent.
 For an existing stack, fill `deployment.resourceGroup`, `containerApp` and `registry`,
 then run `deploy.ps1 -Config customer.json -SyncEnv` to rebuild and apply runtime settings.
-An optional private `.env` supplies explicit overrides, but is no longer required.
+An optional `.env` file can supply overrides for `deploy.ps1`; it is not used by the
+new-customer deployment or local runner. See [the existing-app `.env` steps](#optional-env-for-an-existing-deployment).
 Review the target subscription before deploying; these commands incur charges.
 
 Changes are not live edits: local changes require a restart; deployed changes require
@@ -394,17 +395,42 @@ region; verify model residency requirements separately.
 The current Dalil demo has been deployed and verified, including optional browser
 history in Sweden Central. It is an example, not a subscription or resource set for
 customers to reuse. See [DALIL_AZURE_ARCHITECTURE.md](DALIL_AZURE_ARCHITECTURE.md) for
-the service map. For updates to an existing deployment, review [deploy.ps1](deploy.ps1)
-and the [`.env.example` template](.env.example). To use `deploy.ps1`, copy the template to a local `.env` and fill in its placeholders:
+the service map.
 
-```powershell
-Copy-Item .env.example .env
-```
+### Optional .env for an existing deployment
 
-`.env` is an optional override file for `deploy.ps1`; it may contain secrets and must
-never be committed. Prefer the JSON profile for non-secret settings. It is not required
-when deployment targets are populated in that profile, and is not read by
-`run-local.ps1` or `deploy-customer.ps1`.
+Use this only to rebuild/update an **already provisioned** Container App with
+`deploy.ps1`. Skip it for a new tenant deployment (`deploy-customer.ps1`) and for local
+development (`run-local.ps1`); neither of those commands reads `.env`.
+
+1. Copy the template from the repository root:
+
+  ```powershell
+  Copy-Item .env.example .env
+  ```
+
+2. Open `.env` and fill the existing deployment target values if they are not already
+  set in the selected profile: `AZURE_RESOURCE_GROUP`, `AZURE_CONTAINER_APP`, and
+  `AZURE_CONTAINER_REGISTRY`. `AZURE_IMAGE_NAME` is optional. Keep non-secret runtime
+  settings in `customer.json` where possible; non-empty `.env` values override profile
+  values when `deploy.ps1` reads them.
+3. Leave credential fields such as `SEARCH_KEY`, `AOAI_*_API_KEY`, bearer tokens, and
+  `COMPASS_API_KEY` blank. `deploy.ps1 -SyncEnv` sends non-empty `.env` settings to the
+  Container App. For Azure services, use managed identity; for Compass, configure the
+  key in **Container Apps > Settings > Secrets** and set `COMPASS_API_KEY` to the
+  `secretref:compass-api-key` reference as described above. Never put real credentials
+  in `.env` or commit it; `.env` is git-ignored.
+4. Sign in to the intended Azure subscription and update the existing app:
+
+  ```powershell
+  az login
+  .\deploy.ps1 -Config customer.json -SyncEnv
+  ```
+
+  `deploy.ps1` builds the image in the configured registry and rolls it out to the
+  existing Container App. `-SyncEnv` also applies non-empty, non-secret `.env` overrides.
+  The JSON profile can provide the deployment targets instead of `.env`; explicit
+  `deploy.ps1` parameters take precedence over both.
 
 ### Cost Snapshot
 
