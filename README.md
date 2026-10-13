@@ -113,29 +113,47 @@ need to edit Python files, PowerShell scripts, or Bicep for ordinary configurati
 | `deployment` | Subscription, existing resource group/app/registry, local port and optional Cosmos region |
 | `runtime` | Model provider, Compass endpoint/header, existing service endpoints, response-language and quality/retrieval settings |
 
-For example, select Compass by changing the profile's `runtime` section:
+For example, open `customer.json` and find its top-level `runtime` object. Change or add
+the entries below **inside that object**. This is only the `runtime` section; keep the
+rest of the profile (`source`, `branding`, `resources`, `history`, and `deployment`) as it
+is. Preserve any other runtime entries you already use.
 
 ```json
 {
-  "MODEL_PROVIDER": "compass",
-  "COMPASS_ENDPOINT": "https://gateway.example/openai/deployments/my-model/chat/completions?api-version=2024-10-21",
-  "COMPASS_AUTH_HEADER": "api-key",
-  "MATCH_RESPONSE_LANGUAGE_TO_QUESTION": true,
-  "SEARCH_TOP_K": 8,
-  "GROUNDEDNESS_CHECK_ENABLED": true
+  "runtime": {
+    "MODEL_PROVIDER": "compass",
+    "COMPASS_ENDPOINT": "https://gateway.example/openai/deployments/my-model/chat/completions?api-version=2024-10-21",
+    "COMPASS_AUTH_HEADER": "api-key",
+    "SEARCH_ENDPOINT": "https://<search-service>.search.windows.net",
+    "MATCH_RESPONSE_LANGUAGE_TO_QUESTION": true,
+    "SEARCH_TOP_K": 8,
+    "GROUNDEDNESS_CHECK_ENABLED": true
+  }
 }
 ```
 
-Merge these keys into `runtime`; do not replace the entire profile. Keep API keys out
-of JSON: `COMPASS_API_KEY` must still be supplied securely in the local process or as
-a Container Apps secret reference. Unknown and secret runtime keys are rejected.
+In the actual profile, `runtime` sits alongside the other top-level sections; do not
+replace the full profile with the example above. Replace the example Search host with
+your Search service endpoint. Compass handles model calls, but retrieval still needs
+Azure AI Search and a configured Foundry IQ knowledge base.
 
-After editing, validate and run the selected profile:
+Never put credentials in JSON. Supply `COMPASS_API_KEY` separately through a secure
+local process/secret manager, or configure it as a Container Apps secret reference for
+a deployed app. The profile validator rejects unknown settings and secret fields.
+
+For local use, sign in to Azure CLI (the signed-in identity needs access to Search),
+provide `COMPASS_API_KEY` securely in the process environment, then validate and start
+the same profile:
 
 ```powershell
+az login
 .\.venv\Scripts\python.exe configure_accelerator.py --check customer.json
-.\run-local.ps1 -Config customer.json
+.\run-local.ps1 -Config customer.json -Port 8769
 ```
+
+The validation command checks the profile and prints normalized non-secret settings; it
+does not deploy resources. The runner loads `customer.json` and starts the app locally.
+After stopping the app, remove the process key with `Remove-Item Env:COMPASS_API_KEY`.
 
 For local chat, set `runtime.SEARCH_ENDPOINT` and, for Azure, `runtime.AOAI_CHAT_ENDPOINT`
 to your existing services. Compass reads `runtime.COMPASS_ENDPOINT` instead. Explicit
