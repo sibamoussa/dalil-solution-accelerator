@@ -28,7 +28,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from demo_limits import DemoLimits
-from accelerator_config import load_config
+from accelerator_config import apply_runtime_settings, load_config
 from source_manifest import documents as manifest_documents
 import conversation_history
 
@@ -53,6 +53,7 @@ app = FastAPI(title="Dalil")
 app.add_middleware(DemoLimits)
 app.include_router(conversation_history.router)
 CONFIG = load_config()
+apply_runtime_settings(CONFIG)
 
 
 def _env_flag(name: str, default: str = "true") -> bool:

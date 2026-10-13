@@ -7,8 +7,8 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$Subscription,
-    [Parameter(Mandatory)][string]$Website,
+    [string]$Subscription,
+    [string]$Website,
     [ValidatePattern('^[a-z][a-z0-9-]{1,9}$')][string]$Name = 'policies',
     [ValidateSet('dev','test','prod')][string]$EnvironmentName = 'dev',
     [string]$ConfigPath = '.\customer.json',
@@ -28,6 +28,15 @@ Push-Location $root
 try {
     $python = if ([IO.Path]::IsPathRooted($PythonPath)) { $PythonPath } else { Join-Path $root $PythonPath }
     $configFile = if ([IO.Path]::IsPathRooted($ConfigPath)) { $ConfigPath } else { Join-Path $root $ConfigPath }
+    if (Test-Path $configFile) {
+        $profile = Get-Content $configFile -Raw | ConvertFrom-Json
+        if (-not $Subscription) { $Subscription = $profile.deployment.subscription }
+        if (-not $Website) { $Website = $profile.source.website }
+        if (-not $PSBoundParameters.ContainsKey('Name')) { $Name = $profile.resources.applicationName }
+        if (-not $PSBoundParameters.ContainsKey('EnvironmentName')) { $EnvironmentName = $profile.resources.environmentName }
+        if (-not $CosmosRegion) { $CosmosRegion = $profile.deployment.cosmosRegion }
+    }
+    if (-not $Subscription -or -not $Website) { throw 'Set deployment.subscription and source.website in the selected profile or pass -Subscription and -Website.' }
     if (-not (Test-Path $python)) { throw "Python environment not found: $python. Install from requirements-dev.lock first." }
     $relativeConfig = [IO.Path]::GetRelativePath($root, $configFile)
     if ($relativeConfig -eq '..' -or $relativeConfig.StartsWith("..$([IO.Path]::DirectorySeparatorChar)") -or [IO.Path]::IsPathRooted($relativeConfig)) {
@@ -49,6 +58,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Customer configuration creation failed.' }
     }
     $config = Get-Content $configFile -Raw | ConvertFrom-Json
+    $runtimeJson = & $python (Join-Path $root 'configure_accelerator.py') --check $configFile
+    if ($LASTEXITCODE -ne 0) { throw 'Configuration validation failed before deployment.' }
     if ($config.source.website -ne $Website) { throw "The saved profile points to '$($config.source.website)', not '$Website'. Review ConfigPath instead of silently replacing it." }
     if ($config.resources.applicationName -ne $Name) { throw "Profile name is '$($config.resources.applicationName)'; rerun with -Name $($config.resources.applicationName)." }
     $validateConfig = "import sys; from pathlib import Path; sys.path.insert(0, str(Path('webapp'))); from accelerator_config import load_config; from source_manifest import documents; config=load_config(Path(sys.argv[1])); documents(config)"
@@ -130,6 +141,13 @@ try {
         "historyDatabaseName=$($config.history.database)", "historyContainerName=$($config.history.container)",
         "historyRetentionDays=$($config.history.retentionDays)", 'provisionStorage=false'
     )
+    $runtimeParameterFile = Join-Path ([IO.Path]::GetTempPath()) "$deploymentName-runtime.parameters.json"
+    $deploymentRuntime = $runtimeJson | ConvertFrom-Json -AsHashtable
+    $deploymentRuntime.Remove('HISTORY_ENABLED')
+    if (-not $historyEnabled) { $deploymentRuntime.Remove('COSMOS_ENDPOINT') }
+    $runtimeParameters = @{ parameters = @{ runtimeSettings = @{ value = $deploymentRuntime } } }
+    $runtimeParameters | ConvertTo-Json -Depth 10 | Set-Content $runtimeParameterFile -Encoding utf8
+    $common += "@$runtimeParameterFile"
     if ($historyEnabled) { $common += "cosmosLocation=$CosmosRegion" }
     $phase1Params = $common + "containerImage=$phase1Image"
     Write-Host "`nValidating isolated $Name deployment in $($account.name) ($Subscription), UAE North..." -ForegroundColor Cyan
@@ -179,4 +197,7 @@ try {
     $historySummary = if ($historyEnabled) { "Cosmos ($CosmosRegion): $($outputs.cosmosEndpoint.value)" } else { 'Cosmos conversation history: not provisioned' }
     Write-Host "Resource group: $rg | $historySummary" -ForegroundColor Green
 }
-finally { Pop-Location }
+finally {
+    if ($runtimeParameterFile -and (Test-Path $runtimeParameterFile)) { Remove-Item $runtimeParameterFile }
+    Pop-Location
+}

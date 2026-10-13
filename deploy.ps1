@@ -37,6 +37,7 @@ param(
     [string]$Registry,
     [string]$ImageName,
     [string]$Dockerfile = "Dockerfile",
+    [string]$Config = "accelerator.json",
     [switch]$SyncEnv
 )
 
@@ -47,12 +48,12 @@ $env:PYTHONIOENCODING = "utf-8"
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 # --- Load .env ---------------------------------------------------------------
-if (-not (Test-Path $EnvFile)) {
+if ($PSBoundParameters.ContainsKey('EnvFile') -and -not (Test-Path $EnvFile)) {
     throw "Env file '$EnvFile' not found. Copy .env.example to .env and fill it in."
 }
 
 $settings = @{}
-foreach ($line in Get-Content $EnvFile) {
+foreach ($line in $(if (Test-Path $EnvFile) { Get-Content $EnvFile } else { @() })) {
     $trimmed = $line.Trim()
     if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
     $idx = $trimmed.IndexOf("=")
@@ -62,6 +63,14 @@ foreach ($line in Get-Content $EnvFile) {
     $settings[$key] = $val
 }
 
+$profilePath = if ([IO.Path]::IsPathRooted($Config)) { $Config } else { Join-Path $PSScriptRoot $Config }
+$python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+$runtimeJson = & $python (Join-Path $PSScriptRoot 'configure_accelerator.py') --check $profilePath
+if ($LASTEXITCODE -ne 0) { throw 'Profile validation failed before image build.' }
+foreach ($entry in ($runtimeJson | ConvertFrom-Json).PSObject.Properties) {
+    if (-not $settings.ContainsKey($entry.Name)) { $settings[$entry.Name] = [string]$entry.Value }
+}
+
 # Deployment target: explicit params win, otherwise fall back to .env keys.
 if ($SyncEnv -and $settings["COMPASS_API_KEY"]) {
     throw 'Do not sync COMPASS_API_KEY as plain text. Configure a Container Apps secret reference and leave this .env value blank.'
@@ -69,6 +78,14 @@ if ($SyncEnv -and $settings["COMPASS_API_KEY"]) {
 if (-not $ResourceGroup) { $ResourceGroup = $settings["AZURE_RESOURCE_GROUP"] }
 if (-not $ContainerApp)  { $ContainerApp  = $settings["AZURE_CONTAINER_APP"] }
 if (-not $Registry)      { $Registry      = $settings["AZURE_CONTAINER_REGISTRY"] }
+$profile = Get-Content $profilePath -Raw | ConvertFrom-Json
+if ($profile.deployment.subscription) {
+    az account set --subscription $profile.deployment.subscription
+    if ($LASTEXITCODE -ne 0) { throw 'Configured Azure subscription is not available.' }
+}
+if (-not $ResourceGroup -or $ResourceGroup -like '*<*>*') { $ResourceGroup = $profile.deployment.resourceGroup }
+if (-not $ContainerApp -or $ContainerApp -like '*<*>*') { $ContainerApp = $profile.deployment.containerApp }
+if (-not $Registry -or $Registry -like '*<*>*') { $Registry = $profile.deployment.registry }
 if (-not $ImageName)     { $ImageName     = $settings["AZURE_IMAGE_NAME"] }
 if (-not $ImageName)     { $ImageName     = "dalil-knowledge-assistant" }
 
@@ -82,7 +99,10 @@ foreach ($pair in @{ ResourceGroup = $ResourceGroup; ContainerApp = $ContainerAp
 $tag = "${ImageName}:release-$(Get-Date -Format yyyyMMddHHmmss)"
 $fullImage = "$Registry.azurecr.io/$tag"
 Write-Host "Building $fullImage ..." -ForegroundColor Cyan
-az acr build --registry $Registry --image $tag --file $Dockerfile .
+$relativeConfig = [IO.Path]::GetRelativePath($PSScriptRoot, $profilePath)
+if ($relativeConfig.StartsWith('..') -or [IO.Path]::IsPathRooted($relativeConfig)) { throw 'The profile must be inside the repository build context.' }
+$dockerPath = if ([IO.Path]::IsPathRooted($Dockerfile)) { $Dockerfile } else { Join-Path $PSScriptRoot $Dockerfile }
+az acr build --registry $Registry --image $tag --file $dockerPath --build-arg "ACCELERATOR_CONFIG=$($relativeConfig.Replace('\','/'))" $PSScriptRoot
 
 # --- Deploy ------------------------------------------------------------------
 Write-Host "Updating container app '$ContainerApp' to new image ..." -ForegroundColor Cyan

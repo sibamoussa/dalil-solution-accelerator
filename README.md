@@ -6,6 +6,65 @@ not an official Microsoft or government product or legal advice.
 
 ## Start Here
 
+## Configure Once
+
+Use one JSON profile for supported customer settings: [accelerator.json](accelerator.json)
+for the bundled demo, or generate `customer.json` for your own collection. You do not
+need to edit Python files, PowerShell scripts, or Bicep for ordinary configuration.
+
+| Profile section | Change here |
+| --- | --- |
+| `source` | Website, allowed hosts/paths, document limits and manifest path |
+| `branding` | Name, organization, logo path and accent color |
+| `resources` | Collection names, environment and Azure model/deployment settings |
+| `history` | Capability flag, database/container names and retention days |
+| `deployment` | Subscription, existing resource group/app/registry, local port and optional Cosmos region |
+| `runtime` | Model provider, Compass endpoint/header, existing service endpoints, response-language and quality/retrieval settings |
+
+For example, select Compass by changing the profile's `runtime` section:
+
+```json
+{
+  "MODEL_PROVIDER": "compass",
+  "COMPASS_ENDPOINT": "https://gateway.example/openai/deployments/my-model/chat/completions?api-version=2024-10-21",
+  "COMPASS_AUTH_HEADER": "api-key",
+  "MATCH_RESPONSE_LANGUAGE_TO_QUESTION": true,
+  "SEARCH_TOP_K": 8,
+  "GROUNDEDNESS_CHECK_ENABLED": true
+}
+```
+
+Merge these keys into `runtime`; do not replace the entire profile. Keep API keys out
+of JSON: `COMPASS_API_KEY` must still be supplied securely in the local process or as
+a Container Apps secret reference. Unknown and secret runtime keys are rejected.
+
+After editing, validate and run the selected profile:
+
+```powershell
+.\.venv\Scripts\python.exe configure_accelerator.py --check customer.json
+.\run-local.ps1 -Config customer.json
+```
+
+For local chat, set `runtime.SEARCH_ENDPOINT` and, for Azure, `runtime.AOAI_CHAT_ENDPOINT`
+to your existing services. Compass reads `runtime.COMPASS_ENDPOINT` instead. Explicit
+process environment settings take precedence over profile defaults; local command
+arguments override the corresponding runner setting. Restart after changing the profile.
+
+For a new stack, set `deployment.subscription`, then run
+`deploy-customer.ps1 -ConfigPath customer.json`; names, website and environment are read
+from the profile. Cosmos creation still requires `-EnableConversationHistory` and consent.
+For an existing stack, fill `deployment.resourceGroup`, `containerApp` and `registry`,
+then run `deploy.ps1 -Config customer.json -SyncEnv` to rebuild and apply runtime settings.
+An optional private `.env` supplies explicit overrides, but is no longer required.
+Review the target subscription before deploying; these commands incur charges.
+
+Changes are not live edits: local changes require a restart; deployed changes require
+an image rebuild/rollout. Source changes also require rediscovery, document review and
+ingestion. This profile does not support arbitrary region migrations, network topology,
+new API behavior or other code/infrastructure redesigns.
+
+## Run the Solution
+
 Choose one run mode. Commands below are for Windows PowerShell and run from the Dalil
 repository root. Python 3.13 is required.
 
@@ -83,6 +142,10 @@ are persisted.
 
 ## Choose the Model Provider
 
+The primary choice is now `runtime.MODEL_PROVIDER` in your single JSON profile. Set
+`runtime.COMPASS_ENDPOINT` and `runtime.COMPASS_AUTH_HEADER` there for Compass; the
+environment variables and runner flags below are optional explicit overrides.
+
 | Option | Setting | Application model calls |
 | --- | --- | --- |
 | Azure OpenAI (default) | `MODEL_PROVIDER=azure_openai` | Uses the configured Azure model deployments and managed identity/Azure CLI authentication. |
@@ -154,9 +217,9 @@ options. See [Choose the Model Provider](#choose-the-model-provider) for the com
 | Restrict crawling | `source.allowedHosts`, `source.pathPrefixes`, `maxDocuments`, `maxPages` in `customer.json` | Which public pages/files discovery may consider. Keep hosts and paths narrow. |
 | Select documents | `sources/<collection>.json` after `policy_sources.py` | The reviewed `documents` list actually sent to ingestion. Check `skipped` and `truncated`. |
 | Change branding | `branding.title`, `organization`, `shortName`, `accentColor`, `logo` in `customer.json` | Application title, organization, theme accent, and image. Put the image under `webapp/assets/`; use a path like `/assets/customer-logo.png`. |
-| Choose Azure or Compass | `MODEL_PROVIDER=azure_openai` or `MODEL_PROVIDER=compass` in the server environment; locally use `-ModelProvider` | Selects the provider for synthesis, query rewriting, and verification. Azure is the default. |
+| Choose Azure or Compass | `runtime.MODEL_PROVIDER` in the selected JSON profile (`azure_openai` or `compass`) | Selects the provider for synthesis, query rewriting, and verification. Environment/runner overrides remain optional. |
 | Change Azure model deployments | `resources.chatModel*` and `resources.embeddingModel*` in `customer.json` | Azure model, version, SKU, deployment name, and capacity. These fields do not select the Compass model. Azure retrieval/embedding dependencies remain required with Compass. |
-| Choose a Compass model | `COMPASS_ENDPOINT` and `COMPASS_AUTH_HEADER` in the server environment; locally use `-CompassEndpoint` and `-CompassAuthHeader` | The deployment name in the full APIM URL selects the Compass model. Choose `api-key` or `Ocp-Apim-Subscription-Key`; provide `COMPASS_API_KEY` securely as a process secret or Container Apps secret reference. Do not put these settings or the key in `customer.json`. |
+| Choose a Compass model | `runtime.COMPASS_ENDPOINT` and `runtime.COMPASS_AUTH_HEADER` in the selected JSON profile | The full APIM URL selects the model. Choose `api-key` or `Ocp-Apim-Subscription-Key`. Only the secret `COMPASS_API_KEY` stays outside JSON, as a process secret or Container Apps secret reference. |
 | Change saved-history lifetime | `history.retentionDays` in `customer.json` | TTL/cookie lifetime. This does not provision Cosmos; use the explicit deployment switches above. |
 | Change UI or answer behavior | `webapp/assets/` or `webapp/main.py` | Frontend appearance or chat behavior. Run tests, build a new image, and deploy it. |
 | Change Azure resources | `infra/main.bicep`, `infra/modules/`, and deployment scripts | Infrastructure and regional placement. Preview a fresh what-if and review it before deploying. |
@@ -234,7 +297,10 @@ and the [`.env.example` template](.env.example). To use `deploy.ps1`, copy the t
 Copy-Item .env.example .env
 ```
 
-`.env` contains deployment-specific settings and may contain secrets; it is git-ignored and must never be committed. The `.env` file is for `deploy.ps1` (updating an existing deployment). It is not required for `run-local.ps1` or the new-customer `deploy-customer.ps1` workflow above.
+`.env` is an optional override file for `deploy.ps1`; it may contain secrets and must
+never be committed. Prefer the JSON profile for non-secret settings. It is not required
+when deployment targets are populated in that profile, and is not read by
+`run-local.ps1` or `deploy-customer.ps1`.
 
 ### Cost Snapshot
 

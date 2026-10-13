@@ -1,5 +1,21 @@
 {
   "schemaVersion": 1,
+  "deployment": {
+    "subscription": "",
+    "resourceGroup": "",
+    "containerApp": "",
+    "registry": "",
+    "localPort": 8767,
+    "cosmosRegion": "uaenorth"
+  },
+  "runtime": {
+    "MODEL_PROVIDER": "azure_openai",
+    "COMPASS_ENDPOINT": "",
+    "COMPASS_AUTH_HEADER": "api-key",
+    "MATCH_RESPONSE_LANGUAGE_TO_QUESTION": true,
+    "ANSWERABILITY_THRESHOLD": 1.9,
+    "GROUNDEDNESS_CHECK_ENABLED": true
+  },
   "source": {
     "website": "https://www.abudhabi.gov.ae/ar/policies-and-legislations",
     "allowedHosts": ["www.abudhabi.gov.ae"],

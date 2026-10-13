@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).parent / "webapp"))
-from accelerator_config import load_config
+from accelerator_config import load_config, runtime_settings
 
 
 def customer_config(website: str, name: str = "policies") -> dict:
@@ -21,10 +21,16 @@ def customer_config(website: str, name: str = "policies") -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--website", required=True)
+    parser.add_argument("--website")
+    parser.add_argument("--check", type=Path, help="Validate an existing profile and print its non-secret runtime settings as JSON")
     parser.add_argument("--name", default="policies")
     parser.add_argument("--output", type=Path, default=Path("customer.json"))
     args = parser.parse_args()
+    if args.check:
+        print(json.dumps(runtime_settings(load_config(args.check))))
+        return
+    if not args.website:
+        parser.error("--website is required when creating a profile; use --check to validate an existing one")
     if args.output.exists():
         parser.error("Output already exists. Edit that profile or choose another output; existing setup is never overwritten.")
     config = customer_config(args.website, args.name)

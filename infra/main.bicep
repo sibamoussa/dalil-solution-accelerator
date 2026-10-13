@@ -29,6 +29,7 @@ param organizationName string = 'Dalil Solution Accelerator'
 param organizationShortName string = 'Dalil'
 param logoUrl string = '/assets/dalil-mark.svg'
 param historyEnabled bool = false
+param runtimeSettings object = {}
 @allowed([
   'westcentralus'
   'northcentralus'
@@ -306,6 +307,7 @@ module containerApp 'modules/container-app.bicep' = {
     logoUrl: logoUrl
     cosmosEndpoint: cosmosHistory.?outputs.endpoint ?? ''
     historyEnabled: historyEnabled
+    runtimeSettings: runtimeSettings
     tags: tags
   }
   dependsOn: [

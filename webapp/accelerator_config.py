@@ -4,12 +4,63 @@ import json
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "accelerator.json").exists():
     ROOT = Path(__file__).resolve().parent
+
+RUNTIME_SETTINGS = {
+    "MODEL_PROVIDER", "COMPASS_ENDPOINT", "COMPASS_AUTH_HEADER", "SEARCH_ENDPOINT",
+    "AOAI_CHAT_ENDPOINT", "AOAI_FAST_ENDPOINT", "COSMOS_ENDPOINT", "HISTORY_ENABLED",
+    "SEARCH_TOP_K", "SEARCH_TIMEOUT_SECONDS", "MAX_CHUNKS_PER_DOCUMENT",
+    "SUMMARY_MAX_POINTS", "SUMMARY_MAX_CITATIONS", "MATCH_RESPONSE_LANGUAGE_TO_QUESTION",
+    "AOAI_USE_GENERATIVE_SYNTHESIS", "AOAI_CHAT_TIMEOUT_SECONDS", "AOAI_FAST_TIMEOUT_SECONDS",
+    "AOAI_SYNTHESIS_MAX_COMPLETION_TOKENS", "AOAI_SYNTHESIS_TEMPERATURE",
+    "AOAI_SYNTHESIS_EVIDENCE_TOKEN_BUDGET", "MAX_EVIDENCE_ITEMS", "MIN_EVIDENCE_WORDS",
+    "QUERY_CONTEXTUALIZATION_ENABLED", "CONTEXTUALIZATION_HISTORY_TURNS",
+    "QUERY_NORMALIZATION_ENABLED", "ANSWERABILITY_THRESHOLD", "GROUNDEDNESS_CHECK_ENABLED",
+    "GROUNDEDNESS_CHECK_TIMEOUT_SECONDS", "GROUNDEDNESS_UNSUPPORTED_THRESHOLD",
+    "GROUNDEDNESS_RETRY_ATTEMPTS", "SYNTHESIS_RETRY_STRICT_MODE",
+}
+
+
+def runtime_settings(config: dict) -> dict[str, str]:
+    runtime = config.get("runtime", {})
+    if not isinstance(runtime, dict):
+        raise ValueError("runtime must be an object of non-secret environment settings")
+    values = {}
+    for name, value in runtime.items():
+        if name not in RUNTIME_SETTINGS:
+            raise ValueError(f"Unsupported or secret runtime setting: {name}")
+        if not isinstance(value, (str, bool, int, float)) or value is None:
+            raise ValueError(f"Invalid runtime value: {name}")
+        values[name] = str(value).lower() if isinstance(value, bool) else str(value)
+    if values.get("MODEL_PROVIDER", "azure_openai") not in {"azure_openai", "compass"}:
+        raise ValueError("runtime.MODEL_PROVIDER must be azure_openai or compass")
+    if values.get("COMPASS_AUTH_HEADER", "api-key") not in {"api-key", "Ocp-Apim-Subscription-Key"}:
+        raise ValueError("Invalid runtime.COMPASS_AUTH_HEADER")
+    for name, value in runtime.items():
+        if name.endswith("ENABLED") or name in {"MATCH_RESPONSE_LANGUAGE_TO_QUESTION", "AOAI_USE_GENERATIVE_SYNTHESIS", "SYNTHESIS_RETRY_STRICT_MODE"}:
+            if type(value) is not bool:
+                raise ValueError(f"runtime.{name} must be a JSON boolean")
+        if name.endswith("SECONDS") or name in {"SEARCH_TOP_K", "MAX_CHUNKS_PER_DOCUMENT", "MAX_EVIDENCE_ITEMS", "MIN_EVIDENCE_WORDS", "SUMMARY_MAX_POINTS", "SUMMARY_MAX_CITATIONS", "CONTEXTUALIZATION_HISTORY_TURNS", "AOAI_SYNTHESIS_MAX_COMPLETION_TOKENS", "AOAI_SYNTHESIS_EVIDENCE_TOKEN_BUDGET"}:
+            if type(value) is not int or not 1 <= value <= 100000:
+                raise ValueError(f"runtime.{name} must be a positive bounded integer")
+    for name, value in values.items():
+        if name.endswith("ENDPOINT") and value:
+            parsed = urlsplit(value)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                raise ValueError(f"runtime.{name} must be an HTTPS endpoint without embedded credentials")
+            if set(dict(parse_qsl(parsed.query))) - {"api-version"}:
+                raise ValueError(f"runtime.{name} may only include an api-version query parameter")
+    return values
+
+
+def apply_runtime_settings(config: dict) -> None:
+    for name, value in runtime_settings(config).items():
+        os.environ.setdefault(name, value)
 
 
 def load_config(path: Path | None = None) -> dict:
@@ -69,6 +120,13 @@ def load_config(path: Path | None = None) -> dict:
     for key in ("database", "container"):
         if not re.fullmatch(r"[a-z][a-z0-9-]{1,39}", history[key]):
             raise ValueError(f"Invalid Cosmos {key} name")
+            runtime_settings(config)
+            deployment = config.get("deployment", {})
+            if not isinstance(deployment, dict) or set(deployment) - {"subscription", "resourceGroup", "containerApp", "registry", "localPort", "cosmosRegion"}:
+                raise ValueError("Unsupported deployment configuration")
+            port = deployment.get("localPort", 8767)
+            if type(port) is not int or not 1024 <= port <= 65535:
+                raise ValueError("deployment.localPort must be between 1024 and 65535")
     return config
 
 
