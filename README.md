@@ -242,18 +242,31 @@ The URL must look like
 Use the actual API version supplied by the owner. The deployment name in the URL selects
 the model; no separate Compass model setting is required.
 
-Set `COMPASS_API_KEY` in your process environment using a secure secret-injection tool
-or a private terminal prompt. Do not put it in the customer profile, command-line
-arguments, repository, or browser. In PowerShell 7.4+, set it privately with
-`$env:COMPASS_API_KEY = Read-Host 'Compass APIM subscription key' -MaskInput`, then run:
+`COMPASS_API_KEY` is a secret, not a profile setting. Do not add it under `runtime`:
+the profile validator intentionally rejects secret and unknown keys. The profile stores
+only non-secret values such as `MODEL_PROVIDER`, `COMPASS_ENDPOINT`,
+`COMPASS_AUTH_HEADER`, and `SEARCH_ENDPOINT`.
+
+For a local run, open PowerShell 7.4+ in the repository. Enter the key at the masked
+prompt; it is assigned only to that PowerShell process and inherited by the local app.
+Then sign in to Azure CLI for Search access and start the app in the same terminal:
 
 ```powershell
+$env:COMPASS_API_KEY = Read-Host 'Compass APIM subscription key' -MaskInput
 az login
 .\run-local.ps1 -Config accelerator.json -SearchService <SEARCH_NAME> -ModelProvider compass -CompassEndpoint "https://<APIM_HOST>/<API_PATH>/deployments/<DEPLOYMENT>/chat/completions?api-version=2024-10-21" -CompassAuthHeader api-key
 ```
 
-After stopping the local server, remove the process credential with
-`Remove-Item Env:COMPASS_API_KEY`.
+The key is not echoed, saved to JSON, or placed in the command line. Keep the terminal
+open while the server runs. After stopping the server with Ctrl+C, clear it from that
+process with `Remove-Item Env:COMPASS_API_KEY`. This is an environment variable, scoped
+to the current PowerShell process and inherited by the app it starts. You may instead
+configure a trusted local secret manager to inject `COMPASS_API_KEY` into that process
+before starting the runner. Avoid saving the key in a persistent Windows user/system
+environment variable or writing it literally in a PowerShell assignment; those approaches
+can leave it stored unprotected or in shell history. The local runner does not load `.env`.
+In CI or another hosted environment, use the platform's secret store to inject
+`COMPASS_API_KEY` as a process environment variable.
 
 If your gateway expects `Ocp-Apim-Subscription-Key`, use that value for
 `-CompassAuthHeader`. No bearer prefix is added. To return to Azure, run the local
@@ -261,8 +274,19 @@ command in section A with `-ModelProvider azure_openai` (or omit the option).
 
 ### Use Compass in an existing Container App
 
-Build/deploy the updated code first. In the Azure portal, create a Container Apps secret
-named `compass-api-key`, then set these environment variables on the application container:
+Build/deploy the updated code first. In the Azure portal, configure an existing Container
+App as follows:
+
+1. Open the Container App, go to **Settings > Secrets**, choose **Add**, enter
+  `compass-api-key` as the secret name, paste the APIM key into the secret value field,
+  and save. The key belongs in the secret value field, not an environment-variable value.
+2. Go to **Application > Containers**, edit the app container, and add these environment
+  variables. For `COMPASS_API_KEY`, select the secret-reference option and choose
+  `compass-api-key`; do not type the key itself into the environment variable.
+3. Save the container configuration to create a new revision, then wait until that
+  revision is healthy before sending traffic to it.
+
+Configure the variables as follows:
 
 | Environment variable | Value |
 | --- | --- |
@@ -271,7 +295,9 @@ named `compass-api-key`, then set these environment variables on the application
 | `COMPASS_AUTH_HEADER` | `api-key` or `Ocp-Apim-Subscription-Key` |
 | `COMPASS_API_KEY` | Secret reference to `compass-api-key`, not a plain-text value |
 
-Keep the existing Search and history settings. To switch back, set `MODEL_PROVIDER` to
+Keep the existing Search and history settings. To rotate the key, update the Container Apps
+secret value and create/restart a revision if the portal does not do so automatically. To
+switch back to Azure OpenAI, set `MODEL_PROVIDER` to
 `azure_openai` and ensure the `AOAI_*` endpoint settings are present. Use
 [.env.example](.env.example) as the settings reference. **Do not use `deploy.ps1 -SyncEnv`
 to upload a plain-text Compass key.** The local runner does not automatically load `.env`.
