@@ -120,13 +120,16 @@ def load_config(path: Path | None = None) -> dict:
     for key in ("database", "container"):
         if not re.fullmatch(r"[a-z][a-z0-9-]{1,39}", history[key]):
             raise ValueError(f"Invalid Cosmos {key} name")
-            runtime_settings(config)
-            deployment = config.get("deployment", {})
-            if not isinstance(deployment, dict) or set(deployment) - {"subscription", "resourceGroup", "containerApp", "registry", "localPort", "cosmosRegion"}:
-                raise ValueError("Unsupported deployment configuration")
-            port = deployment.get("localPort", 8767)
-            if type(port) is not int or not 1024 <= port <= 65535:
-                raise ValueError("deployment.localPort must be between 1024 and 65535")
+    runtime_settings(config)
+    deployment = config.get("deployment", {})
+    if not isinstance(deployment, dict) or set(deployment) - {"subscription", "resourceGroup", "containerApp", "registry", "localPort", "cosmosRegion"}:
+        raise ValueError("Unsupported deployment configuration")
+    port = deployment.get("localPort", 8767)
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError("deployment.localPort must be between 1024 and 65535")
+    for key, value in deployment.items():
+        if key != "localPort" and not isinstance(value, str):
+            raise ValueError(f"deployment.{key} must be a string")
     return config
 
 

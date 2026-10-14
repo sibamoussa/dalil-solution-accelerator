@@ -73,6 +73,12 @@ class ConfigurationTests(unittest.TestCase):
             ("resources", "chatModelCapacity", 0),
             ("resources", "chatModelSku", "arbitrary"),
             ("resources", "chatDeployment", "../external"),
+            ("runtime", "COMPASS_API_KEY", "test-only"),
+            ("runtime", "SEARCH_TOP_K", -1),
+            ("deployment", "localPort", 80),
+            ("deployment", "localPort", True),
+            ("deployment", "unknown", "value"),
+            ("deployment", "subscription", 123),
         ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"

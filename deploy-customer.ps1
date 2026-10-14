@@ -44,13 +44,21 @@ try {
     }
     $account = az account show --subscription $Subscription --output json | ConvertFrom-Json
     if (-not $account -or $account.state -ne 'Enabled') { throw "Subscription '$Subscription' is unavailable. Run az login and retry." }
+    az account set --subscription $Subscription
     $signedIn = az ad signed-in-user show --query '{id:id,name:displayName}' --output json | ConvertFrom-Json
     if (-not $signedIn.id) { throw 'Could not resolve the signed-in Entra user needed for scoped deployer permissions.' }
-
-    $acaUsage = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.App/locations/uaenorth/usages?api-version=2024-03-01" --query "value[?name.value=='ManagedEnvironmentCount'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
-    if (-not $acaUsage -or ($acaUsage.limit - $acaUsage.used) -lt 1) { throw 'No confirmed Container Apps managed-environment quota remains in UAE North. Request capacity or choose another subscription; this script will not change region.' }
-    $searchUsage = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.Search/locations/uaenorth/usages?api-version=2025-05-01" --query "value[?name.value=='basic'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
-    if (-not $searchUsage -or ($searchUsage.limit - $searchUsage.used) -lt 1) { throw 'No confirmed Azure AI Search Basic service quota remains in UAE North. Request capacity or choose another subscription; this script will not change region or SKU.' }
+    $existingGroups = @(az group list --subscription $Subscription --output json | ConvertFrom-Json | Where-Object {
+        $_.tags.project -eq $Name -and $_.tags.environment -in @($EnvironmentName, "$Name-$EnvironmentName")
+    })
+    if ($existingGroups.Count -gt 1) { throw "Multiple resource groups match project '$Name' and environment '$EnvironmentName'; resolve the target explicitly before continuing." }
+    if ($existingGroups.Count -eq 1 -and -not $UpdateExisting) { throw "Resource group '$($existingGroups[0].name)' already exists for this project. Refusing to reuse it; pass -UpdateExisting only after reviewing the what-if plan." }
+    if ($existingGroups.Count -eq 0 -and $UpdateExisting) { throw "-UpdateExisting was specified, but no existing resource group was found for '$Name' / '$EnvironmentName'. Remove the switch for a fresh stack." }
+    if ($existingGroups.Count -eq 0) {
+        $acaUsage = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.App/locations/uaenorth/usages?api-version=2024-03-01" --query "value[?name.value=='ManagedEnvironmentCount'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
+        if (-not $acaUsage -or ($acaUsage.limit - $acaUsage.used) -lt 1) { throw 'No confirmed Container Apps managed-environment quota remains in UAE North. Request capacity or choose another subscription; this script will not change region.' }
+        $searchUsage = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.Search/locations/uaenorth/usages?api-version=2025-05-01" --query "value[?name.value=='basic'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
+        if (-not $searchUsage -or ($searchUsage.limit - $searchUsage.used) -lt 1) { throw 'No confirmed Azure AI Search Basic service quota remains in UAE North. Request capacity or choose another subscription; this script will not change region or SKU.' }
+    }
 
     $newProfile = -not (Test-Path $configFile)
     if ($newProfile) {
@@ -60,8 +68,16 @@ try {
     $config = Get-Content $configFile -Raw | ConvertFrom-Json
     $runtimeJson = & $python (Join-Path $root 'configure_accelerator.py') --check $configFile
     if ($LASTEXITCODE -ne 0) { throw 'Configuration validation failed before deployment.' }
+    if ($config.runtime.MODEL_PROVIDER -eq 'compass') { throw 'deploy-customer.ps1 requires MODEL_PROVIDER=azure_openai. Provision and verify Azure first, then follow the README Compass steps for an existing Container App to configure its secret reference.' }
     if ($config.source.website -ne $Website) { throw "The saved profile points to '$($config.source.website)', not '$Website'. Review ConfigPath instead of silently replacing it." }
     if ($config.resources.applicationName -ne $Name) { throw "Profile name is '$($config.resources.applicationName)'; rerun with -Name $($config.resources.applicationName)." }
+    $manifest = Join-Path $root $config.source.manifest
+    if ($newProfile -or $Rediscover -or -not (Test-Path $manifest)) {
+        & $python (Join-Path $root 'policy_sources.py') --config $configFile --output $manifest
+        if ($LASTEXITCODE -ne 0) { throw 'Bounded source discovery failed; no Azure resources were changed.' }
+        Write-Host "Discovery wrote $manifest. Review its documents, skipped entries and truncated flag, then rerun without -Rediscover to deploy. No Azure resources were changed." -ForegroundColor Yellow
+        return
+    }
     $validateConfig = "import sys; from pathlib import Path; sys.path.insert(0, str(Path('webapp'))); from accelerator_config import load_config; from source_manifest import documents; config=load_config(Path(sys.argv[1])); documents(config)"
     & $python -c $validateConfig $configFile
     if ($LASTEXITCODE -ne 0) { throw 'Customer profile or reviewed source manifest failed validation; no Azure resources were changed.' }
@@ -69,18 +85,29 @@ try {
         $logoPath = Join-Path (Join-Path $root 'webapp\assets') $config.branding.logo.Substring('/assets/'.Length)
         if (-not (Test-Path $logoPath)) { throw "Configured branding image not found at '$logoPath'; no Azure resources were changed." }
     }
-    $manifest = Join-Path $root $config.source.manifest
-    if (-not (Test-Path $manifest)) { throw "Reviewed manifest not found at '$manifest'; no Azure resources were changed." }
-    if ($newProfile -or $Rediscover -or -not (Test-Path $manifest)) {
-        & $python (Join-Path $root 'policy_sources.py') --config $configFile --output $manifest
-        if ($LASTEXITCODE -ne 0) { throw 'Bounded source discovery failed; no Azure resources were changed.' }
-    }
     $review = Get-Content $manifest -Raw | ConvertFrom-Json
 
-    $modelUsages = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.CognitiveServices/locations/uaenorth/usages?api-version=2023-05-01" --query "value[?name.value=='OpenAI.$($config.resources.chatModelSku).$($config.resources.chatModel)'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
-    if (-not $modelUsages -or ($modelUsages.limit - $modelUsages.used) -lt $config.resources.chatModelCapacity) { throw "Insufficient or unverified UAE North quota for $($config.resources.chatModelSku)/$($config.resources.chatModel). Check the subscription/model capacity before provisioning; no fallback model or region is selected." }
-    $embeddingUsages = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.CognitiveServices/locations/uaenorth/usages?api-version=2023-05-01" --query "value[?name.value=='OpenAI.$($config.resources.embeddingModelSku).$($config.resources.embeddingModel)'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
-    if (-not $embeddingUsages -or ($embeddingUsages.limit - $embeddingUsages.used) -lt $config.resources.embeddingModelCapacity) { throw "Insufficient or unverified UAE North quota for $($config.resources.embeddingModelSku)/$($config.resources.embeddingModel). Check the subscription/model capacity before provisioning; no fallback model or region is selected." }
+    $existingModels = @()
+    if ($existingGroups.Count -eq 1) {
+        $accounts = @(az cognitiveservices account list --resource-group $existingGroups[0].name --subscription $Subscription --output json | ConvertFrom-Json | Where-Object { $_.kind -eq 'OpenAI' })
+        if ($accounts.Count -gt 1) { throw 'Multiple OpenAI accounts found in the project group; refusing an ambiguous quota check.' }
+        if ($accounts.Count -eq 1) {
+            $existingModels = @(az cognitiveservices account deployment list --name $accounts[0].name --resource-group $existingGroups[0].name --subscription $Subscription --output json | ConvertFrom-Json)
+        }
+    }
+    foreach ($modelType in @('chat', 'embedding')) {
+        $sku = $config.resources."${modelType}ModelSku"
+        $model = $config.resources."${modelType}Model"
+        $capacity = $config.resources."${modelType}ModelCapacity"
+        $modelName = $config.resources."${modelType}Deployment"
+        $allocated = @($existingModels | Where-Object { $_.name -eq $modelName -and $_.sku.name -eq $sku -and $_.properties.model.name -eq $model })
+        $required = $capacity
+        if ($allocated.Count -eq 1) { $required = [Math]::Max(0, $capacity - $allocated[0].sku.capacity) }
+        if ($required -gt 0) {
+            $usage = az rest --method get --url "https://management.azure.com/subscriptions/$Subscription/providers/Microsoft.CognitiveServices/locations/uaenorth/usages?api-version=2023-05-01" --query "value[?name.value=='OpenAI.$sku.$model'] | [0].{used:currentValue,limit:limit}" --output json | ConvertFrom-Json
+            if (-not $usage -or ($usage.limit - $usage.used) -lt $required) { throw "Insufficient or unverified UAE North quota for $sku/$model (additional capacity required: $required). Check the subscription/model capacity before provisioning; no fallback model or region is selected." }
+        }
+    }
 
     $historyEnabled = $EnableConversationHistory.IsPresent
     if ($historyEnabled) {
@@ -112,12 +139,7 @@ try {
     $sessionId = [guid]::NewGuid().ToString()
     $deploymentName = "$Name-$EnvironmentName-$(Get-Date -Format yyyyMMddHHmmss)"
     $phase1Image = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-    $existingGroups = @(az group list --subscription $Subscription --output json | ConvertFrom-Json | Where-Object {
-        $_.tags.project -eq $Name -and $_.tags.environment -in @($EnvironmentName, "$Name-$EnvironmentName")
-    })
-    if ($existingGroups.Count -gt 1) { throw "Multiple resource groups match project '$Name' and environment '$EnvironmentName'; resolve the target explicitly before continuing." }
     if ($existingGroups.Count -eq 1) {
-        if (-not $UpdateExisting) { throw "Resource group '$($existingGroups[0].name)' already exists for this project. Refusing to reuse it; pass -UpdateExisting only after reviewing the what-if plan." }
         $existingApps = @(az containerapp list --resource-group $existingGroups[0].name --subscription $Subscription --output json | ConvertFrom-Json)
         if ($existingApps.Count -gt 1) { throw "More than one Container App exists in $($existingGroups[0].name); refusing an ambiguous update." }
         if ($existingApps.Count -eq 1) {
@@ -125,7 +147,6 @@ try {
             if (-not $phase1Image) { throw 'Could not read the current Container App image; refusing a placeholder downgrade.' }
         }
     }
-    elseif ($UpdateExisting) { throw "-UpdateExisting was specified, but no existing resource group was found for '$Name' / '$EnvironmentName'. Remove the switch for a fresh stack." }
     $common = @(
         "environmentName=$EnvironmentName", "projectName=$Name", 'location=uaenorth',
         "sessionId=$sessionId", "createdAt=$createdAt", "deployedBy=$($signedIn.name)",
@@ -144,7 +165,9 @@ try {
     $runtimeParameterFile = Join-Path ([IO.Path]::GetTempPath()) "$deploymentName-runtime.parameters.json"
     $deploymentRuntime = $runtimeJson | ConvertFrom-Json -AsHashtable
     $deploymentRuntime.Remove('HISTORY_ENABLED')
-    if (-not $historyEnabled) { $deploymentRuntime.Remove('COSMOS_ENDPOINT') }
+    foreach ($endpoint in @('SEARCH_ENDPOINT', 'AOAI_CHAT_ENDPOINT', 'AOAI_FAST_ENDPOINT', 'COSMOS_ENDPOINT')) {
+        $deploymentRuntime.Remove($endpoint)
+    }
     $runtimeParameters = @{ parameters = @{ runtimeSettings = @{ value = $deploymentRuntime } } }
     $runtimeParameters | ConvertTo-Json -Depth 10 | Set-Content $runtimeParameterFile -Encoding utf8
     $common += "@$runtimeParameterFile"
@@ -196,6 +219,10 @@ try {
     Write-Host "Deployment complete: $url" -ForegroundColor Green
     $historySummary = if ($historyEnabled) { "Cosmos ($CosmosRegion): $($outputs.cosmosEndpoint.value)" } else { 'Cosmos conversation history: not provisioned' }
     Write-Host "Resource group: $rg | $historySummary" -ForegroundColor Green
+    Write-Host "Subscription: $Subscription | Container App: $app | Registry: $acr"
+    Write-Host "Search service: $search | Search endpoint: $($outputs.searchEndpoint.value)"
+    Write-Host "OpenAI account: $openAi | Chat deployment: $($config.resources.chatDeployment)"
+    Write-Host "Knowledge base: $($config.resources.knowledgeBase) | Deployment: $deploymentName-image"
 }
 finally {
     if ($runtimeParameterFile -and (Test-Path $runtimeParameterFile)) { Remove-Item $runtimeParameterFile }

@@ -5,12 +5,12 @@
 
 .DESCRIPTION
     Reproduces the full redeploy in one command:
-      1. Reads deployment target + app settings from a .env file.
+    1. Reads deployment target + app settings from the profile and optional .env file.
       2. Builds the image server-side with `az acr build` (no local Docker needed).
       3. Updates the Container App to the new image, creating a new revision.
       4. Optionally pushes the app's environment variables from .env.
 
-    Fill in the unknowns in .env (copy from .env.example) before running.
+    Set targets in the profile, optional .env file, or explicit parameters before running.
 
 .PARAMETER EnvFile
     Path to the environment file. Default: .env
@@ -60,7 +60,7 @@ foreach ($line in $(if (Test-Path $EnvFile) { Get-Content $EnvFile } else { @() 
     if ($idx -lt 1) { continue }
     $key = $trimmed.Substring(0, $idx).Trim()
     $val = $trimmed.Substring($idx + 1).Trim()
-    $settings[$key] = $val
+    if ($val -and $val -notlike '*<*>*') { $settings[$key] = $val }
 }
 
 $profilePath = if ([IO.Path]::IsPathRooted($Config)) { $Config } else { Join-Path $PSScriptRoot $Config }

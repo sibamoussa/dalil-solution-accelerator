@@ -1,6 +1,8 @@
 # Dalil Azure Architecture
 
-Status: source implementation, not provisioned or deployed.
+Reference architecture for the source implementation. This document is not evidence
+that a particular customer deployment has completed; record its outputs and acceptance
+results separately. Follow the [customer deployment guide](README.md#start-here).
 
 ```mermaid
 flowchart LR
@@ -16,7 +18,8 @@ flowchart LR
 
 ## Dedicated Resources
 
-All regional resources use `uaenorth`. Names use `dalil`, the environment, and a
+The core regional resources use `uaenorth`; optional Cosmos history uses the explicitly
+approved Cosmos region. Names use the profile's application name, the environment, and a
 suffix derived from subscription, project and environment. Provisioning never
 references another project's resource IDs, credentials, images or indexes.
 
@@ -31,7 +34,7 @@ references another project's resource IDs, credentials, images or indexes.
 | Managed identity | Scoped runtime Search read, OpenAI use and image pull |
 | Log Analytics + Application Insights | Dedicated monitoring resources |
 | Key Vault | Deployment secret storage with scoped access |
-| Storage | Isolated supporting storage; unused by the public-gazette ingestion path |
+| Storage | Optional supporting storage; disabled by the customer deployment script |
 
 The new Search identity gets embedding access. Operator OCR and ingestion permissions
 are distinct from runtime read permissions. OpenAI/DI local authentication remains
